@@ -1,0 +1,29 @@
+# Run schema discovery first.
+dataset_name: YOUR_DATASET
+biomarker: hemoglobin
+target_unit: g/dL
+
+columns:
+  patient_id: YOUR_PATIENT_ID_COLUMN
+  image_path: YOUR_IMAGE_PATH_COLUMN
+  target_value: YOUR_TARGET_COLUMN
+  image_id: null
+  roi_type: null
+  device_model: null
+  illumination: null
+  acquisition_id: null
+
+  roi_x0: null
+  roi_y0: null
+  roi_x1: null
+  roi_y1: null
+
+# Quantitative optical acquisition metadata (strongly recommended / required for physics audit)
+# exposure_us: YOUR_EXPOSURE_COLUMN
+# iso: YOUR_ISO_COLUMN
+# white_balance_mode: YOUR_WB_MODE_COLUMN
+# working_distance_mm: YOUR_DISTANCE_COLUMN
+# incidence_angle_deg: YOUR_ANGLE_COLUMN
+# image_format: YOUR_FORMAT_COLUMN
+# bit_depth: YOUR_BIT_DEPTH_COLUMN
+# raw_available: YOUR_RAW_FLAG_COLUMN
