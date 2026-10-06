@@ -9,9 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
-import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
@@ -23,7 +21,7 @@ from xgboost import XGBRegressor
 
 from .evaluation import regression_metrics
 from .features import extract
-from .roi import crop_roi
+from .roi import ROIBox, crop, validate_roi_type
 from .splits import patient_split
 
 
@@ -92,12 +90,13 @@ def build_feature_table(
         if image_root is not None and not path.is_absolute():
             path = Path(image_root) / path
         image = np.asarray(__import__("PIL.Image", fromlist=["Image"]).open(path).convert("RGB"))
-        roi = crop_roi(
-            image,
-            row.to_dict(),
-            target="hemoglobin",
-            require_explicit=require_explicit_roi,
-        )
+        if "roi_type" not in row or pd.isna(row["roi_type"]):
+            raise ValueError("Each Hb image needs an explicit roi_type (conjunctiva or nailbed).")
+        validate_roi_type("hemoglobin", str(row["roi_type"]))
+        coords = ["roi_x0", "roi_y0", "roi_x1", "roi_y1"]
+        if not all(c in row and pd.notna(row[c]) for c in coords):
+            raise ValueError(f"Explicit ROI coordinates required: {coords}")
+        roi = crop(image, ROIBox(*(int(row[c]) for c in coords)))
         feats = extract(roi)
         record = {
             "patient_id": str(row["patient_id"]),
@@ -118,11 +117,7 @@ def train_test_hb(
     if "patient_id" not in feature_table or "target_value" not in feature_table:
         raise ValueError("feature_table must contain patient_id and target_value")
 
-    train_idx, _, test_idx = patient_split(
-        feature_table,
-        patient_col="patient_id",
-        random_state=random_state,
-    )
+    train, _, test = patient_split(feature_table, seed=random_state)
     feature_cols = [
         c for c in feature_table.columns
         if c not in {"patient_id", "image_path", "target_value"}
@@ -132,12 +127,12 @@ def train_test_hb(
         raise ValueError("No numeric features available for training.")
 
     model = _build_model(model_name, random_state)
-    model.fit(feature_table.loc[train_idx, feature_cols], feature_table.loc[train_idx, "target_value"])
-    pred = model.predict(feature_table.loc[test_idx, feature_cols])
+    model.fit(train[feature_cols], train["target_value"])
+    pred = model.predict(test[feature_cols])
 
-    y_true = feature_table.loc[test_idx, "target_value"].to_numpy(dtype=float)
+    y_true = test["target_value"].to_numpy(dtype=float)
     metrics = regression_metrics(y_true, pred)
-    predictions = feature_table.loc[test_idx, ["patient_id", "image_path", "target_value"]].copy()
+    predictions = test[["patient_id", "image_path", "target_value"]].copy()
     predictions["prediction"] = pred
     return HbBaselineResult(predictions=predictions.reset_index(drop=True), metrics=metrics)
 
