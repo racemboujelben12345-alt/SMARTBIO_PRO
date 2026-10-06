@@ -4,6 +4,24 @@ from .schema import ColumnMapping
 from .validator import validate_canonical
 
 
+def _parse_bool_series(values, name):
+    """Normalize common boolean encodings and reject ambiguous values."""
+    mapping = {
+        "true": True, "false": False, "1": True, "0": False,
+        "yes": True, "no": False, "y": True, "n": False,
+    }
+    out = []
+    for value in values:
+        if pd.isna(value):
+            out.append(False)
+            continue
+        key = str(value).strip().lower()
+        if key not in mapping:
+            raise ValueError(f"Invalid boolean value for {name}: {value!r}")
+        out.append(mapping[key])
+    return pd.Series(out, index=values.index, dtype="boolean")
+
+
 def build_canonical(raw, mapping, source_dataset, biomarker, target_unit):
     required_source = [mapping.patient_id, mapping.image_path, mapping.target_value]
     for source in required_source:
@@ -29,15 +47,18 @@ def build_canonical(raw, mapping, source_dataset, biomarker, target_unit):
     if mapping.acquisition_id:
         result["acquisition_id"] = raw[mapping.acquisition_id].astype("string").str.strip()
     else:
-        # Unique fallback per image; patient-only IDs collapse repeated acquisitions.
         result["acquisition_id"] = result["image_id"]
 
     for col in ("roi_x0", "roi_y0", "roi_x1", "roi_y1", "exposure_us", "iso", "working_distance_mm", "incidence_angle_deg", "bit_depth"):
         source = getattr(mapping, col)
         result[col] = pd.to_numeric(raw[source], errors="coerce") if source else None
-    for col in ("white_balance_mode", "image_format", "raw_available"):
+    for col in ("white_balance_mode", "image_format"):
         source = getattr(mapping, col)
         result[col] = raw[source].astype("string").str.strip() if source else None
+    if mapping.raw_available:
+        result["raw_available"] = _parse_bool_series(raw[mapping.raw_available], "raw_available")
+    else:
+        result["raw_available"] = False
 
     report = validate_canonical(result)
     if not report["valid"]:
