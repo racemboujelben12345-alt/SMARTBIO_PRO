@@ -2,6 +2,7 @@ import pandas as pd
 from smartbio.validator import validate_canonical
 from smartbio.splits import patient_split, assert_no_patient_overlap
 
+
 def test_validator_accepts_valid_record():
     df = pd.DataFrame({
         "patient_id":["p1"], "image_id":["i1"], "image_path":["x.jpg"],
@@ -10,10 +11,22 @@ def test_validator_accepts_valid_record():
     })
     assert validate_canonical(df)["valid"]
 
+
+def test_validator_rejects_missing_quantitative_target():
+    df = pd.DataFrame({
+        "patient_id":["p1"], "image_id":["i1"], "image_path":["x.jpg"],
+        "source_dataset":["demo"], "biomarker":["hemoglobin"]
+    })
+    report = validate_canonical(df)
+    assert not report["valid"]
+    assert "target_value" in report["errors"][0]
+
+
 def test_patient_split_is_disjoint():
     df = pd.DataFrame({"patient_id":[f"p{i}" for i in range(40)]})
     a,b,c = patient_split(df)
     assert_no_patient_overlap(a,b,c)
+
 
 def test_unseen_device_split_is_patient_safe():
     from smartbio.splits import unseen_device_split
@@ -31,6 +44,7 @@ def test_roi_contract_rejects_wrong_target():
     from smartbio.roi import validate_roi_type
     with pytest.raises(ValueError):
         validate_roi_type("hemoglobin", "forehead")
+
 
 def test_feature_extraction_requires_explicit_roi():
     from PIL import Image
@@ -59,6 +73,7 @@ def test_flash_ambient_requires_metadata_pair_keys():
     from smartbio.optical import flash_minus_ambient
     with pytest.raises(ValueError):
         flash_minus_ambient([[[1,1,1]]], [[[0,0,0]]], metadata={'flash':{}, 'ambient':{}})
+
 
 def test_package_version_is_pro():
     import smartbio
@@ -91,7 +106,6 @@ def test_relative_od_requires_positive_reference():
 
 
 def test_auto_white_balance_is_rejected():
-    import pytest
     from smartbio.biophysics import validate_physical_capture
     r = validate_physical_capture({
         "image_format":"JPEG", "exposure_us":10000, "iso":100,
@@ -101,6 +115,27 @@ def test_auto_white_balance_is_rejected():
     assert any("white balance" in x.lower() for x in r["errors"])
 
 
+def test_nan_camera_settings_are_rejected():
+    import numpy as np
+    from smartbio.biophysics import validate_physical_capture
+    r = validate_physical_capture({
+        "image_format":"JPEG", "exposure_us":np.nan, "iso":np.inf,
+        "white_balance_mode":"manual", "raw_available":False,
+    })
+    assert not r["valid"]
+    assert any("finite" in x.lower() for x in r["errors"])
+
+
+def test_string_false_is_not_treated_as_true_for_raw():
+    from smartbio.biophysics import validate_physical_capture
+    r = validate_physical_capture({
+        "image_format":"RAW", "exposure_us":10000, "iso":100,
+        "white_balance_mode":"manual", "raw_available":"false",
+    }, require_raw=True)
+    assert not r["valid"]
+    assert any("RAW capture" in x for x in r["errors"])
+
+
 def test_flash_ambient_channel_gain():
     import numpy as np
     from smartbio.optical import flash_minus_ambient
@@ -108,6 +143,7 @@ def test_flash_ambient_channel_gain():
     a = np.array([[[1.,2.,3.]]])
     y = flash_minus_ambient(x, a, alpha=[2.,3.,4.])
     assert np.allclose(y, [[[8.,14.,18.]]])
+
 
 def test_physics_rejects_nonpositive_camera_settings():
     from smartbio.biophysics import validate_physical_capture

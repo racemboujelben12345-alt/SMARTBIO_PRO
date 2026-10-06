@@ -32,26 +32,36 @@ def srgb_to_linear(rgb, eps=1e-8):
 def validate_physical_capture(meta: dict, *, require_raw=False):
     """Return errors/warnings instead of silently assuming camera physics."""
     errors, warnings = [], []
-    if require_raw and not bool(meta.get("raw_available", False)):
+    raw = meta.get("raw_available", False)
+    if isinstance(raw, str):
+        parsed = {"true": True, "1": True, "yes": True, "y": True,
+                  "false": False, "0": False, "no": False, "n": False}.get(raw.strip().lower())
+        if parsed is None:
+            errors.append("raw_available must be a boolean or an accepted boolean string.")
+        raw = parsed
+    if require_raw and raw is not True:
         errors.append("RAW capture is required for this protocol.")
     if not meta.get("image_format"):
         warnings.append("image_format missing; JPEG/sRGB assumptions cannot be verified.")
     exposure = meta.get("exposure_us", meta.get("exposure"))
     iso = meta.get("iso")
-    if exposure is None or iso is None:
-        errors.append("exposure_us and iso are required for quantitative optical comparison.")
-    else:
+    for name, value in (("exposure_us", exposure), ("iso", iso)):
+        if value is None:
+            errors.append(f"{name} is required for quantitative optical comparison.")
+            continue
         try:
-            if float(exposure) <= 0:
-                errors.append("exposure_us must be > 0.")
-            if float(iso) <= 0:
-                errors.append("iso must be > 0.")
+            value = float(value)
+            if not np.isfinite(value):
+                errors.append(f"{name} must be finite.")
+            elif value <= 0:
+                errors.append(f"{name} must be > 0.")
         except (TypeError, ValueError):
-            errors.append("exposure_us and iso must be numeric.")
+            errors.append(f"{name} must be numeric.")
     if meta.get("bit_depth") is not None:
         try:
-            if int(meta["bit_depth"]) < 8:
-                errors.append("bit_depth must be >= 8.")
+            depth = float(meta["bit_depth"])
+            if not np.isfinite(depth) or int(depth) != depth or depth < 8:
+                errors.append("bit_depth must be a finite integer >= 8.")
         except (TypeError, ValueError):
             errors.append("bit_depth must be an integer.")
     wb = str(meta.get("white_balance_mode", "")).lower()
@@ -59,15 +69,20 @@ def validate_physical_capture(meta: dict, *, require_raw=False):
         errors.append("Auto white balance is not acceptable for quantitative color comparison.")
     if meta.get("working_distance_mm") is None:
         warnings.append("working_distance_mm missing; illumination geometry is not controlled.")
-    elif float(meta["working_distance_mm"]) <= 0:
-        errors.append("working_distance_mm must be > 0.")
+    else:
+        try:
+            distance = float(meta["working_distance_mm"])
+            if not np.isfinite(distance) or distance <= 0:
+                errors.append("working_distance_mm must be finite and > 0.")
+        except (TypeError, ValueError):
+            errors.append("working_distance_mm must be numeric.")
     if meta.get("incidence_angle_deg") is None:
         warnings.append("incidence_angle_deg missing; illumination geometry is not controlled.")
     else:
         try:
             angle = float(meta["incidence_angle_deg"])
-            if not 0 <= angle <= 90:
-                errors.append("incidence_angle_deg must be between 0 and 90 degrees.")
+            if not np.isfinite(angle) or not 0 <= angle <= 90:
+                errors.append("incidence_angle_deg must be finite and between 0 and 90 degrees.")
         except (TypeError, ValueError):
             errors.append("incidence_angle_deg must be numeric.")
     return {"valid": not errors, "errors": errors, "warnings": warnings}
@@ -140,9 +155,15 @@ def relative_attenuation(mu_a, mu_s, pathlength_cm):
     """
     mua = np.asarray(mu_a, dtype=float)
     mus = np.asarray(mu_s, dtype=float)
-    if mua.shape != mus.shape or np.any(mua < 0) or np.any(mus < 0) or pathlength_cm <= 0:
+    if mua.shape != mus.shape or np.any(~np.isfinite(mua)) or np.any(~np.isfinite(mus)) or np.any(mua < 0) or np.any(mus < 0):
         raise ValueError("Invalid optical-property inputs.")
-    return np.exp(-(mua + mus) * float(pathlength_cm))
+    try:
+        path = float(pathlength_cm)
+    except (TypeError, ValueError):
+        raise ValueError("pathlength_cm must be numeric.")
+    if not np.isfinite(path) or path <= 0:
+        raise ValueError("pathlength_cm must be finite and > 0.")
+    return np.exp(-(mua + mus) * path)
 
 
 def identifiability_report(sensitivity_matrix, *, tolerance=1e-10):

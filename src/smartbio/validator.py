@@ -1,7 +1,8 @@
 import pandas as pd
 
 REQUIRED = {
-    "patient_id","image_id","image_path","source_dataset","biomarker"
+    "patient_id","image_id","image_path","source_dataset","biomarker",
+    "target_value","target_unit"
 }
 ALLOWED_BIOMARKERS = {"hemoglobin","bilirubin"}
 EXPECTED_UNITS = {"hemoglobin":"g/dL","bilirubin":"mg/dL"}
@@ -15,31 +16,26 @@ def validate_canonical(df):
         errors.append(f"Missing canonical columns: {sorted(missing)}")
         return {"valid": False, "errors": errors, "warnings": warnings}
 
-    for c in ["patient_id","image_id","image_path","source_dataset","biomarker"]:
+    for c in ["patient_id","image_id","image_path","source_dataset","biomarker","target_unit"]:
         if df[c].isna().any():
             errors.append(f"Missing values in {c}.")
+        if df[c].astype(str).str.strip().eq("").any():
+            errors.append(f"Empty values in {c}.")
+
+    target = pd.to_numeric(df["target_value"], errors="coerce")
+    if target.isna().any() or (~target.map(pd.notna)).any():
+        errors.append("Missing/non-numeric target_value.")
+    if not target.empty and (target < 0).any():
+        errors.append("Negative target_value.")
 
     bad_biomarkers = set(df["biomarker"].dropna().unique()) - ALLOWED_BIOMARKERS
     if bad_biomarkers:
         errors.append(f"Unknown biomarkers: {sorted(bad_biomarkers)}")
 
-    if "target_value" in df:
-        target = pd.to_numeric(df["target_value"], errors="coerce")
-        if target.isna().any():
-            errors.append("Missing/non-numeric target_value.")
-        if (target < 0).any():
-            errors.append("Negative target_value.")
-
-    if "target_unit" in df.columns:
-        for biomarker, unit in EXPECTED_UNITS.items():
-            bad = df.loc[df["biomarker"] == biomarker, "target_unit"].dropna()
-            if len(bad) and not set(bad.astype(str)) <= {unit}:
-                errors.append(f"Unexpected unit for {biomarker}; expected {unit}.")
-
-    if df["patient_id"].astype(str).str.strip().eq("").any():
-        errors.append("Empty patient_id.")
-    if df["image_path"].astype(str).str.strip().eq("").any():
-        errors.append("Empty image_path.")
+    for biomarker, unit in EXPECTED_UNITS.items():
+        bad = df.loc[df["biomarker"] == biomarker, "target_unit"].dropna()
+        if len(bad) and not set(bad.astype(str)) <= {unit}:
+            errors.append(f"Unexpected unit for {biomarker}; expected {unit}.")
 
     if "roi_type" in df.columns:
         from .roi import TARGET_ROIS
