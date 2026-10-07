@@ -4,7 +4,7 @@ REQUIRED = {"patient_id","image_id","image_path","source_dataset","biomarker","t
 ALLOWED_BIOMARKERS = {"hemoglobin","bilirubin"}
 EXPECTED_UNITS = {"hemoglobin":"g/dL","bilirubin":"mg/dL"}
 
-def validate_canonical(df, *, require_target_provenance=False):
+def validate_canonical(df, *, require_target_provenance=False, require_roi_provenance=False):
     errors, warnings = [], []
     missing = REQUIRED - set(df.columns)
     if missing:
@@ -51,6 +51,17 @@ def validate_canonical(df, *, require_target_provenance=False):
                     validate_roi_geometry(box,image_width=width,image_height=height)
                 except (TypeError,ValueError,OverflowError) as exc:
                     errors.append(f"Invalid ROI geometry at row {idx}: {exc}")
+    if require_roi_provenance:
+        required_roi = {"roi_type", "roi_x0", "roi_y0", "roi_x1", "roi_y1", "image_width", "image_height"}
+        missing_roi = required_roi - set(df.columns)
+        if missing_roi:
+            errors.append(f"Missing ROI provenance columns: {sorted(missing_roi)}")
+        else:
+            roi_values = df[list(["roi_x0", "roi_y0", "roi_x1", "roi_y1"])].apply(pd.to_numeric, errors="coerce")
+            dims = df[["image_width", "image_height"]].apply(pd.to_numeric, errors="coerce")
+            if roi_values.isna().any().any() or dims.isna().any().any():
+                errors.append("Incomplete ROI provenance: explicit ROI coordinates and image dimensions are required.")
+
     if require_target_provenance:
         from .target_provenance import validate_target_provenance_frame
         biomarkers=set(df["biomarker"].dropna().astype(str).str.lower())
