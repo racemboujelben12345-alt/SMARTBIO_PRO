@@ -39,13 +39,19 @@ def test_missing_asset_fails(tmp_path):
     assert any("asset does not exist" in e for e in report["errors"])
 
 
-def test_duplicate_identity_fails(tmp_path):
+def test_repeated_patient_reference_and_acquisition_are_allowed(tmp_path):
     first = valid_row()
     second = valid_row()
     second["image_id"] = "I02"
-    second["acquisition_id"] = "A02"
-    second["reference_measurement_id"] = "R02"
+    frame = pd.DataFrame([first, second])
+    report = audit_experimental_intake(frame, data_root=tmp_path, require_assets=False)
+    assert report["passed"]
+
+
+def test_duplicate_image_identity_fails(tmp_path):
+    first = valid_row()
+    second = valid_row()
     frame = pd.DataFrame([first, second])
     report = audit_experimental_intake(frame, data_root=tmp_path, require_assets=False)
     assert not report["passed"]
-    assert any("Duplicate identity values in patient_id" in e for e in report["errors"])
+    assert any("Duplicate identity values in image_id" in e for e in report["errors"])
