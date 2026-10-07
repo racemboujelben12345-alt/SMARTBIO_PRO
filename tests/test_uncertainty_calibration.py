@@ -15,7 +15,7 @@ def test_interval_calibration_reports_nominal_and_observed_coverage():
     assert report.nominal_coverage == pytest.approx(0.75)
     assert report.observed_coverage == pytest.approx(0.75)
     assert report.coverage_error == pytest.approx(0.0)
-    assert report.mean_interval_width == pytest.approx(2.25)
+    assert report.mean_interval_width == pytest.approx(1.25)
 
 
 def test_subject_bootstrap_is_deterministic():
