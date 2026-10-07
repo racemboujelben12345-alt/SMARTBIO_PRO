@@ -45,7 +45,7 @@ def test_missing_reference_fails_closed():
 
 def test_unpaired_condition_is_not_treated_as_effect():
     frame = pd.DataFrame({
-        "patient_id": [1, 2, 2],
+        "patient_id": [1, 2, 3],
         "perturbation": ["reference", "reference", "device_B"],
         "measurement_value": [10.0, 20.0, 21.0],
     })
