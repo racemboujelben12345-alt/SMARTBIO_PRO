@@ -105,7 +105,7 @@ def run_quantitative_experiment(
     if not np.isfinite(pred).all():
         raise ValueError("predictions must contain only finite values.")
 
-    manifest = ExperimentManifest(
+    manifest = ExperimentManifest.create(
         dataset=str(dataset).strip(),
         dataset_version=str(dataset_version).strip(),
         split_protocol=str(split_protocol).strip(),
