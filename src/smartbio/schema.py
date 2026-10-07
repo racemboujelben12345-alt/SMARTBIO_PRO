@@ -5,7 +5,7 @@ CANONICAL_COLUMNS = [
     "patient_id","image_id","image_path","source_dataset","biomarker",
     "target_value","target_unit","target_source","reference_method",
     "reference_measurement_id","reference_type","target_time_delta_min",
-    "roi_type","device_model","illumination","acquisition_id","exposure_us",
+    "roi_type","roi_x0","roi_y0","roi_x1","roi_y1","image_width","image_height","device_model","illumination","acquisition_id","exposure_us",
     "iso","white_balance_mode","working_distance_mm","incidence_angle_deg",
     "image_format","bit_depth","raw_available",
 ]
@@ -28,6 +28,8 @@ class ColumnMapping:
     roi_x0: Optional[str] = None
     roi_y0: Optional[str] = None
     roi_x1: Optional[str] = None
+    image_width: Optional[str] = None
+    image_height: Optional[str] = None
     roi_y1: Optional[str] = None
     exposure_us: Optional[str] = None
     iso: Optional[str] = None
