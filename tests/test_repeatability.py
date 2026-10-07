@@ -11,10 +11,11 @@ def test_repeatability_estimate():
         "measurement_value": [10.0, 11.0, 20.0, 21.0, 30.0, 31.0],
     })
     report = analyze_repeatability(frame)
+    expected_within_sd = (0.5 ** 0.5)
     assert report.n_repeated_subjects == 3
     assert report.n_devices == 2
-    assert report.within_subject_sd == pytest.approx(1.0)
-    assert report.repeatability_coefficient == pytest.approx(2.77)
+    assert report.within_subject_sd == pytest.approx(expected_within_sd)
+    assert report.repeatability_coefficient == pytest.approx(2.77 * expected_within_sd)
 
 
 def test_two_device_reproducibility_is_paired():
