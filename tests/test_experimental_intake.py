@@ -14,6 +14,8 @@ def valid_row():
         "acquisition_id": "A01", "exposure_us": 10000, "iso": 100,
         "white_balance_mode": "locked", "working_distance_mm": 100,
         "incidence_angle_deg": 0,
+        "image_width": 640, "image_height": 480,
+        "roi_x0": 100, "roi_y0": 100, "roi_x1": 300, "roi_y1": 300,
     }
 
 
@@ -55,3 +57,11 @@ def test_duplicate_image_identity_fails(tmp_path):
     report = audit_experimental_intake(frame, data_root=tmp_path, require_assets=False)
     assert not report["passed"]
     assert any("Duplicate identity values in image_id" in e for e in report["errors"])
+
+
+def test_missing_roi_geometry_fails(tmp_path):
+    row = valid_row()
+    row["roi_x0"] = None
+    report = audit_experimental_intake(pd.DataFrame([row]), data_root=tmp_path, require_assets=False)
+    assert not report["passed"]
+    assert any("invalid ROI geometry" in e for e in report["errors"])
