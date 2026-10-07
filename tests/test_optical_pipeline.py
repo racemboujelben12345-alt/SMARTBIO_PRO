@@ -63,5 +63,5 @@ def test_channel_gains_are_applied_after_linearization():
 def test_invalid_rgb_range_is_rejected():
     image = rgb().astype(float)
     image[0, 0, 0] = 300
-    with pytest.raises(ValueError, match="\[0, 255\]"):
+    with pytest.raises(ValueError, match=r"\[0, 255\]"):
         preprocess_roi(image)
