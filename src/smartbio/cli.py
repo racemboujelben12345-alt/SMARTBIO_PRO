@@ -17,7 +17,8 @@ from .validator import validate_canonical
 from .acquisition import REQUIRED_QUANTITATIVE_FIELDS
 from .biophysics import validate_physical_capture
 from .quality import QualityGateConfig, assess_paths
-from .ingestion import ingest_sewa_local
+from .ingestion import ingest_sewa_local, load_metadata_table
+from .sewa_preflight import preflight_sewa
 
 def mapping_from_yaml(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -55,6 +56,10 @@ def main():
     p.add_argument("--output", required=True)
 
     p = sub.add_parser("physics-audit")
+    p.add_argument("--metadata", required=True)
+    p.add_argument("--output", required=True)
+
+    p = sub.add_parser("sewa-preflight")
     p.add_argument("--metadata", required=True)
     p.add_argument("--output", required=True)
 
@@ -141,6 +146,14 @@ def main():
 
     elif args.cmd == "features":
         extract_dataset(args.metadata, args.output)
+
+    elif args.cmd == "sewa-preflight":
+        report = preflight_sewa(load_metadata_table(args.metadata))
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+        print(json.dumps(report.to_dict(), indent=2))
+        if not report.passed:
+            raise SystemExit("SEWA PREFLIGHT NOT READY: downstream quantitative gates remain closed.")
 
     elif args.cmd == "ingest-sewa":
         result = ingest_sewa_local(args.metadata, output_path=args.output)
