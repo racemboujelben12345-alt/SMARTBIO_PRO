@@ -199,7 +199,7 @@ def run_scientific_experiment(
         n_calibration=len(calibration),
         n_test=len(test),
         n_test_patients=int(test["patient_id"].nunique()),
-        test_metrics=dict(evaluation.benchmark.metrics),
+        test_metrics=dict(evaluation.benchmark.benchmark.metrics),
         uncertainty={
             **uncertainty,
             "conformal_alpha": float(conformal.alpha),
