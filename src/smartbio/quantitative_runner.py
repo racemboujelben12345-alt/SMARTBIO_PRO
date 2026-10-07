@@ -17,6 +17,7 @@ from .benchmark_gate import BenchmarkGateReport, run_benchmark_gate
 from .provenance_audit import audit_partitions
 from .statistical_rigor import ExperimentManifest
 from .target_provenance import validate_target_provenance_frame
+from .roi import ROIBox, validate_roi_geometry, validate_roi_type
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,22 @@ def _validate_partition(
     )
     if not provenance["valid"]:
         errors.extend(f"{name}: {e}" for e in provenance["errors"])
+
+    required_roi = {"roi_type", "roi_x0", "roi_y0", "roi_x1", "roi_y1", "image_width", "image_height"}
+    missing_roi = required_roi - set(frame.columns)
+    if missing_roi:
+        errors.append(f"{name}: missing ROI provenance columns: {sorted(missing_roi)}")
+    else:
+        for idx, row in frame.iterrows():
+            try:
+                roi_type = str(row["roi_type"]).strip().lower()
+                if not roi_type:
+                    raise ValueError("roi_type must be non-empty.")
+                validate_roi_type(biomarker, roi_type)
+                box = ROIBox(int(row["roi_x0"]), int(row["roi_y0"]), int(row["roi_x1"]), int(row["roi_y1"]))
+                validate_roi_geometry(box, image_width=int(row["image_width"]), image_height=int(row["image_height"]))
+            except (TypeError, ValueError, OverflowError) as exc:
+                errors.append(f"{name} row {idx}: invalid ROI provenance: {exc}")
 
     required_identity = {"patient_id", "image_id", "acquisition_id"}
     missing = required_identity - set(frame.columns)
