@@ -84,8 +84,8 @@ def analyze_repeatability(
     """Estimate within-subject repeatability and paired two-device reproducibility."""
     df = _validate_frame(frame, value_column, subject_column, device_column)
     groups = df.groupby(subject_column, sort=True)[value_column]
-    repeated = groups.filter(lambda x: len(x) >= 2)
-    n_repeated = int(repeated.index.unique().size)
+    group_sizes = groups.size()
+    n_repeated = int((group_sizes >= 2).sum())
     if n_repeated == 0:
         raise ValueError("at least one subject with two measurements is required.")
 
