@@ -77,6 +77,7 @@ class ScientificExperimentReport:
     test_metrics: dict[str, float]
     uncertainty: dict[str, float]
     abstained_test: int
+    max_interval_width: float | None
 
     def to_dict(self) -> dict[str, object]:
         return {
