@@ -107,3 +107,29 @@ def test_engine_requires_explicit_features():
             n_bootstrap=100,
             n_permutations=100,
         )
+
+
+def test_engine_requires_positive_abstention_width():
+    with pytest.raises(ValueError, match="max_interval_width"):
+        ScientificExperimentConfig(
+            dataset="synthetic-engine-test",
+            dataset_version="1",
+            split_protocol="patient-level",
+            biomarker="hemoglobin",
+            unit="g/dL",
+            feature_columns=("f1",),
+            max_interval_width=0,
+        )
+
+
+def test_engine_abstention_policy_is_explicit():
+    config = _config()
+    report = run_scientific_experiment(
+        _frame(0, 12),
+        _frame(12, 8),
+        _frame(20, 10),
+        config=config,
+        n_bootstrap=200,
+        n_permutations=200,
+    )
+    assert report.abstained_test == 0
