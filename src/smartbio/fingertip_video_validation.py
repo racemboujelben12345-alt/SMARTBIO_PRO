@@ -85,7 +85,7 @@ def _resolve_video_path(video_path: str, video_root: Path | None) -> Path:
     return video_root / path
 
 
-def _inspect_video(path: Path) -> tuple[bool, float | None, float | None, int | None, int | None, int | None, list[str]]:
+def _inspect_video(path: Path) -> tuple[bool, float | None, float | None, int | None, int | None, int | None, int | None, list[str]]:
     capture = cv2.VideoCapture(str(path))
     errors: list[str] = []
     try:
