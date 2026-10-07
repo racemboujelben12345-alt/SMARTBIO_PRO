@@ -129,7 +129,7 @@ def test_engine_abstention_policy_is_explicit():
         _frame(12, 8),
         _frame(20, 10),
         config=config,
-        n_bootstrap=100,
-        n_permutations=100,
+        n_bootstrap=200,
+        n_permutations=200,
     )
     assert report.abstained_test == 0
