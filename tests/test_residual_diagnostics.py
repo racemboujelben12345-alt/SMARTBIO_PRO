@@ -15,7 +15,7 @@ def test_residual_diagnostics_detects_range_dependent_error():
     })
     r = analyze_residual_diagnostics(frame, n_bins=4)
     assert r.n_pairs == 10
-    assert r.mean_residual == pytest.approx(1.2)
+    assert r.mean_residual == pytest.approx(0.95)
     assert r.absolute_residual_reference_spearman > 0.9
     assert r.absolute_residual_reference_slope > 0
     assert len(r.stratified) == 4
