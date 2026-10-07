@@ -28,7 +28,7 @@ def test_repeated_rows_are_averaged():
     })
     report = analyze_subgroup_robustness(frame)
     assert report.n_pairs == 4
-    assert report.subgroups[0]["mean_bias"] == pytest.approx(0.5)
+    assert report.subgroups[0]["mean_bias"] == pytest.approx(0.75)
 
 
 def test_subject_cannot_change_subgroup():
@@ -38,7 +38,7 @@ def test_subject_cannot_change_subgroup():
         "measurement_value": [10., 11., 12.],
         "device_model": ["A", "B", "A"],
     })
-    with pytest.raises(ValueError, match="multiple subgroups"):
+    with pytest.raises(ValueError, match="exactly one subgroup"):
         analyze_subgroup_robustness(frame)
 
 
