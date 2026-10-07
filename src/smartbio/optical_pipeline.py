@@ -89,7 +89,7 @@ def preprocess_roi(
         raise ValueError("calibration_id is required when channel_gains are supplied.")
 
     clipped = saturation_mask(x, low=cfg.low_code, high=cfg.high_code)
-    valid = ~clipped.any(axis=-1)
+    valid = ~clipped
     saturation_fraction = float(clipped.mean())
     valid_fraction = float(valid.mean())
 
