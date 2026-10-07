@@ -22,6 +22,8 @@ from .sewa_preflight import preflight_sewa
 from .fingertip_preflight import preflight_fingertip
 from .fingertip_video_validation import validate_fingertip_videos
 from .experimental_intake import audit_experimental_intake
+from .optical_pipeline import preprocess_roi
+from .roi import roi_from_metadata, validate_roi_type
 
 def mapping_from_yaml(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -85,6 +87,12 @@ def main():
     p.add_argument("--output", required=True)
     p.add_argument("--biomarker", required=True, choices=["hemoglobin","bilirubin"])
     p.add_argument("--unit", required=True)
+
+    p = sub.add_parser("optical-audit")
+    p.add_argument("--metadata", required=True)
+    p.add_argument("--data-root", default=None)
+    p.add_argument("--output", required=True)
+    p.add_argument("--min-valid-fraction", type=float, default=0.80)
 
     p = sub.add_parser("quality")
     p.add_argument("--images", required=True)
@@ -239,6 +247,64 @@ def main():
         }, indent=2))
         if not report["passed"]:
             raise SystemExit("EXPERIMENTAL INTAKE FAILED: quantitative analysis remains closed.")
+
+    elif args.cmd == "optical-audit":
+        df = pd.read_csv(args.metadata)
+        required = {"image_path", "biomarker", "roi_type", "roi_x0", "roi_y0", "roi_x1", "roi_y1"}
+        missing = required - set(df.columns)
+        if missing:
+            raise SystemExit(f"OPTICAL AUDIT FAILED: missing columns {sorted(missing)}")
+
+        data_root = Path(args.data_root) if args.data_root else None
+        records = []
+        for idx, row in df.iterrows():
+            record = {
+                "row": int(idx),
+                "image_id": row.get("image_id"),
+                "patient_id": row.get("patient_id"),
+                "biomarker": row.get("biomarker"),
+                "roi_type": row.get("roi_type"),
+            }
+            try:
+                biomarker = str(row["biomarker"]).strip().lower()
+                roi_type = str(row["roi_type"]).strip().lower()
+                validate_roi_type(biomarker, roi_type)
+                path = Path(str(row["image_path"]))
+                if data_root is not None and not path.is_absolute():
+                    path = data_root / path
+                from .features import load_rgb
+                image = load_rgb(path)
+                roi = roi_from_metadata(image, row)
+                result = preprocess_roi(
+                    roi,
+                    min_valid_fraction=args.min_valid_fraction,
+                )
+                record.update(result.summary())
+                record["image_path"] = str(path)
+                record["passed"] = result.quality_status == "PASS"
+            except Exception as exc:
+                record.update({
+                    "quality_status": "ERROR",
+                    "passed": False,
+                    "error": str(exc),
+                })
+            records.append(record)
+
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result_df = pd.DataFrame(records)
+        result_df.to_csv(out, index=False)
+        summary = {
+            "records": int(len(result_df)),
+            "passed": int(result_df["passed"].sum()) if len(result_df) else 0,
+            "failed": int((~result_df["passed"]).sum()) if len(result_df) else 0,
+            "output": str(out),
+            "raw_images_modified": False,
+            "scientific_status": "engineering_optical_audit_only",
+        }
+        print(json.dumps(summary, indent=2))
+        if summary["failed"]:
+            raise SystemExit("OPTICAL AUDIT FAILED: quantitative optical preprocessing remains closed.")
 
     elif args.cmd == "quality":
         image_root = Path(args.images)
