@@ -33,6 +33,7 @@ class ScientificExperimentConfig:
     model: str = "ridge"
     calibration_id: str = "none"
     alpha: float = 0.10
+    max_interval_width: float | None = None
     random_seed: int = 42
 
     def __post_init__(self) -> None:
@@ -50,6 +51,10 @@ class ScientificExperimentConfig:
             raise ValueError("feature_columns must be unique.")
         if not 0 < self.alpha < 1:
             raise ValueError("alpha must be in (0,1).")
+        if self.max_interval_width is not None and (
+            not np.isfinite(self.max_interval_width) or self.max_interval_width <= 0
+        ):
+            raise ValueError("max_interval_width must be finite and > 0 when provided.")
         if self.random_seed < 0:
             raise ValueError("random_seed must be non-negative.")
 
@@ -89,6 +94,7 @@ class ScientificExperimentReport:
             "test_metrics": self.test_metrics,
             "uncertainty": self.uncertainty,
             "abstained_test": self.abstained_test,
+            "max_interval_width": self.max_interval_width,
         }
 
 
@@ -184,8 +190,10 @@ def run_scientific_experiment(
             + "; ".join(evaluation.preflight_errors)
         )
 
-    max_width = 2.0 * conformal.quantile
-    abstained = int(np.sum((upper - lower) > max_width))
+    if config.max_interval_width is None:
+        abstained = 0
+    else:
+        abstained = int(np.sum((upper - lower) > config.max_interval_width))
 
     return ScientificExperimentReport(
         manifest_hash=evaluation.manifest_hash,
