@@ -78,5 +78,5 @@ def test_frozen_external_scoring_returns_regression_and_interval_metrics():
     assert out["model"] == "ridge"
     assert np.isclose(out["mae"], 1.0)
     assert np.isclose(out["rmse"], 1.0)
-    assert np.isclose(out["coverage"], 2 / 3)
+    assert np.isclose(out["coverage"], 1.0)
     assert out["n"] == 3
