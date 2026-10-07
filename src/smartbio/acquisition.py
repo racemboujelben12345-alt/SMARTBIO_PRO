@@ -59,8 +59,13 @@ class AcquisitionContract:
         if not 0 <= angle <= 90:
             raise ValueError("incidence_angle_deg must be in [0, 90].")
 
-        if str(self.white_balance_mode).strip().lower() in {"auto", "awb"}:
+        wb = str(self.white_balance_mode).strip().lower()
+        if wb in {"auto", "awb"}:
             raise ValueError("Auto white balance is not allowed for quantitative capture.")
+        if wb not in LOCKED_WB_VALUES:
+            raise ValueError(
+                "Quantitative white balance must be explicitly locked/manual/fixed."
+            )
 
         if str(self.illumination).strip().lower() not in ALLOWED_ILLUMINATION:
             raise ValueError(
