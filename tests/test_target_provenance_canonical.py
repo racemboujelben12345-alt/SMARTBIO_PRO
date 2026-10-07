@@ -51,3 +51,17 @@ def test_strict_roi_provenance_accepts_explicit_geometry():
     m = ColumnMapping(**{**m.__dict__, "roi_type":"roi_type", "roi_x0":"x0", "roi_y0":"y0", "roi_x1":"x1", "roi_y1":"y1", "image_width":"w", "image_height":"h"})
     out = build_canonical(frame, m, "demo", "hemoglobin", "g/dL", require_target_provenance=True, require_roi_provenance=True)
     assert out[["roi_x0", "roi_y0", "roi_x1", "roi_y1"]].notna().all().all()
+
+def test_strict_roi_provenance_rejects_missing_roi_label():
+    frame = raw()
+    frame["roi_type"] = [None, "conjunctiva"]
+    frame["x0"] = [10, 20]
+    frame["y0"] = [10, 20]
+    frame["x1"] = [100, 120]
+    frame["y1"] = [100, 120]
+    frame["w"] = [200, 240]
+    frame["h"] = [200, 240]
+    m = mapping()
+    m = ColumnMapping(**{**m.__dict__, "roi_type":"roi_type", "roi_x0":"x0", "roi_y0":"y0", "roi_x1":"x1", "roi_y1":"y1", "image_width":"w", "image_height":"h"})
+    with pytest.raises(ValueError, match="roi_type"):
+        build_canonical(frame, m, "demo", "hemoglobin", "g/dL", require_roi_provenance=True)
