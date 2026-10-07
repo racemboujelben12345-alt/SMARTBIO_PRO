@@ -9,9 +9,9 @@ def test_paired_agreement_and_error_decomposition():
     assert r.mean_bias==pytest.approx(1/3)
     assert r.mae==pytest.approx(1.)
     assert r.rmse==pytest.approx(1.)
-    assert r.error_sd==pytest.approx(1.)
-    assert r.loa_low==pytest.approx(1/3-1.96)
-    assert r.loa_high==pytest.approx(1/3+1.96)
+    assert r.error_sd==pytest.approx((4/3)**0.5)
+    assert r.loa_low==pytest.approx(1/3-1.96*((4/3)**0.5))
+    assert r.loa_high==pytest.approx(1/3+1.96*((4/3)**0.5))
 
 def test_repeated_rows_are_averaged_within_subject():
     frame=pd.DataFrame({"patient_id":[1,1,2,2],"reference_value":[10.,12.,20.,20.],"measurement_value":[11.,13.,19.,21.]})
