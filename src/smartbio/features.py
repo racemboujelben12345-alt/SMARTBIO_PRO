@@ -1,10 +1,98 @@
+"""Biophysical and color feature extraction for SmartBio optical acquisitions."""
+from __future__ import annotations
+
 from pathlib import Path
-from .biophysics import srgb_to_linear, chromaticity
+from dataclasses import dataclass
 import cv2
 import numpy as np
 import pandas as pd
 
+from .biophysics import chromaticity, relative_optical_density, srgb_to_linear
 
+
+@dataclass(frozen=True)
+class FeatureConfig:
+    eps: float = 1e-8
+    include_std: bool = True
+    include_ratios: bool = True
+    include_relative_od: bool = False
+
+
+def _validate_rgb(rgb: np.ndarray) -> np.ndarray:
+    x = np.asarray(rgb, dtype=float)
+    if x.ndim != 3 or x.shape[-1] != 3:
+        raise ValueError("Expected an RGB ROI with shape HxWx3.")
+    if x.shape[0] < 1 or x.shape[1] < 1:
+        raise ValueError("RGB ROI must not be empty.")
+    if not np.isfinite(x).all():
+        raise ValueError("RGB ROI contains non-finite values.")
+    return np.clip(x, 0.0, 255.0)
+
+
+def _safe_ratio(a: float, b: float, eps: float) -> float:
+    if not np.isfinite(a) or not np.isfinite(b):
+        raise ValueError("Ratio inputs must be finite.")
+    return float(a / max(abs(b), eps))
+
+
+def extract_biophysical_features(rgb, *, reference=None,
+                                 config: FeatureConfig | None = None) -> dict[str, float]:
+    """Extract interpretable ROI-level optical/color features."""
+    config = config or FeatureConfig()
+    if config.eps <= 0 or not np.isfinite(config.eps):
+        raise ValueError("eps must be finite and > 0.")
+
+    x = _validate_rgb(rgb)
+    linear = srgb_to_linear(x)
+    mean = linear.mean(axis=(0, 1))
+    features = {
+        "linear_r_mean": float(mean[0]),
+        "linear_g_mean": float(mean[1]),
+        "linear_b_mean": float(mean[2]),
+        "linear_total_mean": float(mean.sum()),
+    }
+    if config.include_std:
+        std = linear.std(axis=(0, 1))
+        features.update({
+            "linear_r_std": float(std[0]),
+            "linear_g_std": float(std[1]),
+            "linear_b_std": float(std[2]),
+        })
+
+    chroma = chromaticity(x, eps=config.eps).mean(axis=(0, 1))
+    features.update({
+        "chrom_r_mean": float(chroma[0]),
+        "chrom_g_mean": float(chroma[1]),
+        "chrom_b_mean": float(chroma[2]),
+    })
+
+    if config.include_ratios:
+        features.update({
+            "r_over_g": _safe_ratio(mean[0], mean[1], config.eps),
+            "r_over_b": _safe_ratio(mean[0], mean[2], config.eps),
+            "g_over_b": _safe_ratio(mean[1], mean[2], config.eps),
+        })
+
+    if config.include_relative_od:
+        if reference is None:
+            raise ValueError("reference is required when include_relative_od=True.")
+        ref = _validate_rgb(reference)
+        if ref.shape != x.shape:
+            raise ValueError("reference must have the same shape as rgb.")
+        od = relative_optical_density(x, ref, eps=config.eps)
+        od_mean = od.mean(axis=(0, 1))
+        features.update({
+            "relative_od_r_mean": float(od_mean[0]),
+            "relative_od_g_mean": float(od_mean[1]),
+            "relative_od_b_mean": float(od_mean[2]),
+        })
+
+    if not np.isfinite(list(features.values())).all():
+        raise ValueError("Feature extraction produced non-finite values.")
+    return features
+
+
+# Backward-compatible acquisition helpers retained from the previous feature API.
 def load_rgb(path):
     image = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if image is None:
@@ -16,44 +104,26 @@ def center_roi(image, fraction=0.60):
     if not 0 < fraction <= 1:
         raise ValueError("fraction must be in (0,1]")
     h, w = image.shape[:2]
-    rh, rw = max(1, int(h*fraction)), max(1, int(w*fraction))
-    y, x = (h-rh)//2, (w-rw)//2
-    return image[y:y+rh, x:x+rw]
+    rh, rw = max(1, int(h * fraction)), max(1, int(w * fraction))
+    y, x = (h - rh) // 2, (w - rw) // 2
+    return image[y:y + rh, x:x + rw]
 
 
 def roi_from_metadata(image, row):
-    """Use an explicit ROI box when present; center ROI is legacy/demo only."""
     keys = ("roi_x0", "roi_y0", "roi_x1", "roi_y1")
     if all(k in row.index and pd.notna(row[k]) for k in keys):
-        vals = [int(row[k]) for k in keys]
-        x0, y0, x1, y1 = vals
+        x0, y0, x1, y1 = [int(row[k]) for k in keys]
         h, w = image.shape[:2]
         if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
             raise ValueError("Explicit ROI box is outside image bounds.")
         return image[y0:y1, x0:x1].copy()
-    if row.get("roi_type") not in (None, "", np.nan):
-        # Anatomical label without coordinates must not silently become a center ROI.
-        if pd.notna(row.get("roi_type")):
-            raise ValueError("roi_type is specified but ROI coordinates are missing; refusing to use a center ROI.")
+    if "roi_type" in row.index and pd.notna(row.get("roi_type")):
+        raise ValueError("roi_type is specified but ROI coordinates are missing; refusing to use a center ROI.")
     raise ValueError("Explicit ROI coordinates are required for scientific feature extraction.")
 
 
-def robust_stats(x, prefix):
-    x = np.asarray(x, dtype=np.float32).ravel()
-    if x.size == 0 or not np.isfinite(x).all():
-        raise ValueError("ROI contains no finite pixels.")
-    return {
-        f"{prefix}_mean": float(np.mean(x)),
-        f"{prefix}_std": float(np.std(x)),
-        f"{prefix}_median": float(np.median(x)),
-        f"{prefix}_p05": float(np.percentile(x,5)),
-        f"{prefix}_p25": float(np.percentile(x,25)),
-        f"{prefix}_p75": float(np.percentile(x,75)),
-        f"{prefix}_p95": float(np.percentile(x,95)),
-    }
-
-
 def extract(path, roi=None, roi_fraction=0.60, *, allow_demo_center_roi=False):
+    """Legacy entry point; scientific default still requires an explicit ROI."""
     image = load_rgb(path)
     if roi is None:
         if not allow_demo_center_roi:
@@ -61,34 +131,7 @@ def extract(path, roi=None, roi_fraction=0.60, *, allow_demo_center_roi=False):
         rgb = center_roi(image, roi_fraction)
     else:
         rgb = roi
-    if rgb.size == 0:
-        raise ValueError("ROI is empty.")
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
-    channels = {
-        "r":rgb[:,:,0], "g":rgb[:,:,1], "b":rgb[:,:,2],
-        "h":hsv[:,:,0], "s":hsv[:,:,1], "v":hsv[:,:,2],
-        "l":lab[:,:,0], "a":lab[:,:,1], "b_lab":lab[:,:,2],
-    }
-    out = {}
-    for k, v in channels.items():
-        out.update(robust_stats(v, k))
-    # Use linearized channels for ratio/chromaticity features; do not treat sRGB codes as irradiance.
-    linear = srgb_to_linear(rgb)
-    r,g,b = [linear[:,:,i].astype(np.float32) for i in range(3)]
-    eps = 1e-6
-    total = r+g+b+eps
-    out.update({
-        "r_over_g": float(np.mean(r/(g+eps))),
-        "r_over_b": float(np.mean(r/(b+eps))),
-        "g_over_b": float(np.mean(g/(b+eps))),
-        "r_chromaticity": float(np.mean(r/total)),
-        "g_chromaticity": float(np.mean(g/total)),
-        "b_chromaticity": float(np.mean(b/total)),
-        "linear_mean_intensity": float(np.mean(linear)),
-        "linear_saturation_fraction": float(np.mean(np.any((rgb <= 1) | (rgb >= 254), axis=-1))),
-    })
-    return out
+    return extract_biophysical_features(rgb)
 
 
 def extract_dataset(metadata_csv, output_csv, *, require_explicit_roi=True):
@@ -102,7 +145,7 @@ def extract_dataset(metadata_csv, output_csv, *, require_explicit_roi=True):
             image = load_rgb(row["image_path"])
             if require_explicit_roi:
                 roi = roi_from_metadata(image, row)
-                item.update(extract(row["image_path"], roi=roi))
+                item.update(extract_biophysical_features(roi))
             else:
                 item.update(extract(row["image_path"], allow_demo_center_roi=True))
             item["feature_error"] = None
