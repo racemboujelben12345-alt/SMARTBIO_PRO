@@ -17,6 +17,7 @@ from .validator import validate_canonical
 from .acquisition import REQUIRED_QUANTITATIVE_FIELDS
 from .biophysics import validate_physical_capture
 from .quality import QualityGateConfig, assess_paths
+from .ingestion import ingest_sewa_local
 
 def mapping_from_yaml(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -54,6 +55,10 @@ def main():
     p.add_argument("--output", required=True)
 
     p = sub.add_parser("physics-audit")
+    p.add_argument("--metadata", required=True)
+    p.add_argument("--output", required=True)
+
+    p = sub.add_parser("ingest-sewa")
     p.add_argument("--metadata", required=True)
     p.add_argument("--output", required=True)
 
@@ -136,6 +141,16 @@ def main():
 
     elif args.cmd == "features":
         extract_dataset(args.metadata, args.output)
+
+    elif args.cmd == "ingest-sewa":
+        result = ingest_sewa_local(args.metadata, output_path=args.output)
+        print(json.dumps({
+            "records": int(len(result)),
+            "patients": int(result["patient_id"].nunique()),
+            "output": str(args.output),
+            "quantitative_ready": False,
+            "note": "Ingestion only; acquisition/provenance gates still required."
+        }, indent=2))
 
     elif args.cmd == "quality":
         image_root = Path(args.images)
