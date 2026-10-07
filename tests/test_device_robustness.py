@@ -43,4 +43,4 @@ def test_device_report_compares_models():
     held = pd.DataFrame({"model": ["ridge"], "mae": [1.5], "rmse": [1.7], "r2": [0.6]})
     out = device_robustness_report(source, held)
     assert np.isclose(out.loc[0, "mae_relative_change"], 0.5)
-    assert np.isclose(out.loc[0, "rmse_relative_change"], 0.5)
+    assert np.isclose(out.loc[0, "rmse_relative_change"], (1.7 - 1.2) / 1.2)
