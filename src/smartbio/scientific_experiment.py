@@ -217,4 +217,5 @@ def run_scientific_experiment(
             "calibration_n": int(conformal.n_calibration),
         },
         abstained_test=abstained,
+        max_interval_width=config.max_interval_width,
     )
