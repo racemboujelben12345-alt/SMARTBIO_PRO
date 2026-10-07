@@ -43,6 +43,7 @@ def test_fingertip_preflight_rejects_missing_manifest_fields():
 
 def test_fingertip_preflight_rejects_missing_target():
     frame = valid_manifest()
+    frame["hemoglobin_gdl"] = frame["hemoglobin_gdl"].astype(object)
     frame.loc[0, "hemoglobin_gdl"] = "not-a-number"
 
     report = preflight_fingertip(frame)
