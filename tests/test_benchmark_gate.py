@@ -12,7 +12,11 @@ def frame():
 
 def test_gate_passes():
     f=frame(); r=run_benchmark_gate(f,[10.2,10.8,12.1],manifest_hash="m",
+<<<<<<< HEAD
         expected_biomarker="hemoglobin",expected_unit="g/dL",n_bootstrap=200,n_permutations=200)
+=======
+        expected_biomarker="hemoglobin",expected_unit="g/dL",n_bootstrap=20,n_permutations=20)
+>>>>>>> origin/main
     assert r.passed
 
 def test_missing_provenance_fails():
