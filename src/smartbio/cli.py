@@ -25,6 +25,7 @@ from .experimental_intake import audit_experimental_intake
 from .optical_pipeline import OpticalPreprocessConfig, preprocess_roi
 from .features import roi_from_metadata
 from .roi import validate_roi_type
+from .scientific_experiment import ScientificExperimentConfig, run_scientific_experiment
 
 def mapping_from_yaml(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -94,6 +95,25 @@ def main():
     p.add_argument("--data-root", default=None)
     p.add_argument("--output", required=True)
     p.add_argument("--min-valid-fraction", type=float, default=0.80)
+
+    p = sub.add_parser("scientific-experiment")
+    p.add_argument("--train", required=True)
+    p.add_argument("--calibration", required=True)
+    p.add_argument("--test", required=True)
+    p.add_argument("--dataset", required=True)
+    p.add_argument("--dataset-version", required=True)
+    p.add_argument("--split-protocol", required=True)
+    p.add_argument("--biomarker", required=True, choices=["hemoglobin","bilirubin"])
+    p.add_argument("--unit", required=True)
+    p.add_argument("--features", required=True, help="Comma-separated feature column names")
+    p.add_argument("--model", default="ridge", choices=["linear","ridge","lasso","random_forest","gradient_boosting"])
+    p.add_argument("--calibration-id", default="none")
+    p.add_argument("--alpha", type=float, default=0.10)
+    p.add_argument("--max-interval-width", type=float, default=None)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--bootstrap", type=int, default=2000)
+    p.add_argument("--permutations", type=int, default=2000)
+    p.add_argument("--output", required=True)
 
     p = sub.add_parser("quality")
     p.add_argument("--images", required=True)
@@ -308,6 +328,39 @@ def main():
         print(json.dumps(summary, indent=2))
         if summary["failed"]:
             raise SystemExit("OPTICAL AUDIT FAILED: quantitative optical preprocessing remains closed.")
+
+    elif args.cmd == "scientific-experiment":
+        features = tuple(x.strip() for x in args.features.split(",") if x.strip())
+        if not features:
+            raise SystemExit("SCIENTIFIC EXPERIMENT FAILED: at least one feature is required.")
+        config = ScientificExperimentConfig(
+            dataset=args.dataset,
+            dataset_version=args.dataset_version,
+            split_protocol=args.split_protocol,
+            biomarker=args.biomarker,
+            unit=args.unit,
+            feature_columns=features,
+            model=args.model,
+            calibration_id=args.calibration_id,
+            alpha=args.alpha,
+            max_interval_width=args.max_interval_width,
+            random_seed=args.seed,
+        )
+        try:
+            report = run_scientific_experiment(
+                pd.read_csv(args.train),
+                pd.read_csv(args.calibration),
+                pd.read_csv(args.test),
+                config=config,
+                n_bootstrap=args.bootstrap,
+                n_permutations=args.permutations,
+            )
+        except Exception as exc:
+            raise SystemExit(f"SCIENTIFIC EXPERIMENT FAILED: {exc}") from exc
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+        print(json.dumps(report.to_dict(), indent=2))
 
     elif args.cmd == "quality":
         image_root = Path(args.images)
