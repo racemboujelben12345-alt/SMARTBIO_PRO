@@ -23,6 +23,10 @@ def frame():
         "incidence_angle_deg": [0.0] * 3,
         "illumination": ["flash"] * 3,
         "acquisition_id": ["a1","a2","a3"],
+        "roi_type": ["conjunctiva"] * 3,
+        "roi_x0": [10,10,10], "roi_y0": [10,10,10],
+        "roi_x1": [100,100,100], "roi_y1": [100,100,100],
+        "image_width": [200,200,200], "image_height": [200,200,200],
     })
 
 
@@ -68,3 +72,18 @@ def test_runner_fails_partition_overlap():
 def test_runner_rejects_prediction_mismatch():
     with pytest.raises(ValueError):
         run_quantitative_experiment(frame(), [10.2,10.8], **kwargs())
+
+
+def test_runner_fails_missing_roi_provenance():
+    bad = frame().drop(columns=["roi_type"])
+    result = run_quantitative_experiment(bad, [10.2,10.8,12.1], **kwargs())
+    assert not result.passed
+    assert any("roi provenance" in e.lower() for e in result.preflight_errors)
+
+
+def test_runner_fails_invalid_target_roi():
+    bad = frame().copy()
+    bad["roi_type"] = "forehead"
+    result = run_quantitative_experiment(bad, [10.2,10.8,12.1], **kwargs())
+    assert not result.passed
+    assert any("roi provenance" in e.lower() for e in result.preflight_errors)
