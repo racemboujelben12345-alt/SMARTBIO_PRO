@@ -12,12 +12,15 @@ from typing import Iterable
 
 import pandas as pd
 
+from .roi import ROIBox, validate_roi_geometry, validate_roi_type
+
 REQUIRED_COLUMNS = {
     "patient_id", "image_id", "image_path", "source_dataset", "biomarker",
     "target_value", "target_unit", "target_source", "reference_method",
     "reference_measurement_id", "reference_type", "roi_type", "device_model",
     "illumination", "acquisition_id", "exposure_us", "iso",
     "white_balance_mode", "working_distance_mm", "incidence_angle_deg",
+    "image_width", "image_height", "roi_x0", "roi_y0", "roi_x1", "roi_y1",
 }
 
 QUANTITATIVE_FIELDS = {
@@ -115,6 +118,24 @@ def audit_experimental_intake(
 
         if str(row["illumination"]).strip().lower() not in {"flash", "ambient", "controlled_led", "reference"}:
             errors.append(f"{prefix}: unsupported illumination")
+
+        # ROI provenance is quantitative metadata, not an optional annotation.
+        # Validate target-specific ROI type and explicit geometry against the
+        # declared image dimensions; never infer or repair missing coordinates.
+        try:
+            validate_roi_type(str(row["biomarker"]).strip().lower(), str(row["roi_type"]).strip().lower())
+        except ValueError as exc:
+            errors.append(f"{prefix}: invalid ROI type: {exc}")
+        try:
+            width = int(row["image_width"])
+            height = int(row["image_height"])
+            box = ROIBox(
+                int(row["roi_x0"]), int(row["roi_y0"]),
+                int(row["roi_x1"]), int(row["roi_y1"]),
+            )
+            validate_roi_geometry(box, image_width=width, image_height=height)
+        except (TypeError, ValueError, OverflowError) as exc:
+            errors.append(f"{prefix}: invalid ROI geometry: {exc}")
 
         path_value = str(row["image_path"]).strip()
         path = Path(path_value)
