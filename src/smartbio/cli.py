@@ -22,8 +22,9 @@ from .sewa_preflight import preflight_sewa
 from .fingertip_preflight import preflight_fingertip
 from .fingertip_video_validation import validate_fingertip_videos
 from .experimental_intake import audit_experimental_intake
-from .optical_pipeline import preprocess_roi
-from .roi import roi_from_metadata, validate_roi_type
+from .optical_pipeline import OpticalPreprocessConfig, preprocess_roi
+from .features import roi_from_metadata
+from .roi import validate_roi_type
 
 def mapping_from_yaml(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -277,7 +278,9 @@ def main():
                 roi = roi_from_metadata(image, row)
                 result = preprocess_roi(
                     roi,
-                    min_valid_fraction=args.min_valid_fraction,
+                    config=OpticalPreprocessConfig(
+                        min_valid_fraction=args.min_valid_fraction
+                    ),
                 )
                 record.update(result.summary())
                 record["image_path"] = str(path)
