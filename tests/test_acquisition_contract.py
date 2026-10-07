@@ -60,3 +60,11 @@ def test_no_imputation_of_missing_metadata():
     row["iso"] = ""
     with pytest.raises(ValueError):
         contract_from_row(row)
+
+
+def test_unlocked_white_balance_fails_closed():
+    row = valid_row()
+    row["white_balance_mode"] = "device_default"
+    result = acquisition_gate(row)
+    assert not result["valid"]
+    assert any("locked/manual/fixed" in error for error in result["errors"])
