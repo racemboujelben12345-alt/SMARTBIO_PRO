@@ -21,6 +21,7 @@ from .ingestion import ingest_sewa_local, load_metadata_table
 from .sewa_preflight import preflight_sewa
 from .fingertip_preflight import preflight_fingertip
 from .fingertip_video_validation import validate_fingertip_videos
+from .experimental_intake import audit_experimental_intake
 
 def mapping_from_yaml(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -77,6 +78,13 @@ def main():
     p = sub.add_parser("ingest-sewa")
     p.add_argument("--metadata", required=True)
     p.add_argument("--output", required=True)
+
+    p = sub.add_parser("experimental-intake")
+    p.add_argument("--manifest", required=True)
+    p.add_argument("--data-root", default=None)
+    p.add_argument("--output", required=True)
+    p.add_argument("--biomarker", required=True, choices=["hemoglobin","bilirubin"])
+    p.add_argument("--unit", required=True)
 
     p = sub.add_parser("quality")
     p.add_argument("--images", required=True)
@@ -209,6 +217,28 @@ def main():
             "quantitative_ready": False,
             "note": "Ingestion only; acquisition/provenance gates still required."
         }, indent=2))
+
+    elif args.cmd == "experimental-intake":
+        manifest = load_metadata_table(args.manifest)
+        report = audit_experimental_intake(
+            manifest,
+            data_root=args.data_root,
+            require_assets=True,
+            expected_biomarker=args.biomarker,
+            expected_unit=args.unit,
+        )
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(json.dumps({
+            "passed": report["passed"],
+            "rows": report["n_rows"],
+            "patients": report["n_unique_patients"],
+            "unique_assets": report["n_unique_assets"],
+            "errors": len(report["errors"]),
+        }, indent=2))
+        if not report["passed"]:
+            raise SystemExit("EXPERIMENTAL INTAKE FAILED: quantitative analysis remains closed.")
 
     elif args.cmd == "quality":
         image_root = Path(args.images)
