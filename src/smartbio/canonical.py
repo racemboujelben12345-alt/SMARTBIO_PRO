@@ -21,7 +21,7 @@ def _mapped_text(raw, source):
         return raw[source].astype("string").str.strip()
     return pd.Series([pd.NA] * len(raw), index=raw.index, dtype="string")
 
-def build_canonical(raw, mapping, source_dataset, biomarker, target_unit, *, require_target_provenance=False):
+def build_canonical(raw, mapping, source_dataset, biomarker, target_unit, *, require_target_provenance=False, require_roi_provenance=False):
     required_source = [mapping.patient_id, mapping.image_path, mapping.target_value]
     for source in required_source:
         if source not in raw.columns:
@@ -46,7 +46,7 @@ def build_canonical(raw, mapping, source_dataset, biomarker, target_unit, *, req
     for col in ("white_balance_mode","image_format"):
         result[col] = _mapped_text(raw,getattr(mapping,col))
     result["raw_available"] = _parse_bool_series(raw[mapping.raw_available],"raw_available") if mapping.raw_available else False
-    report = validate_canonical(result, require_target_provenance=require_target_provenance)
+    report = validate_canonical(result, require_target_provenance=require_target_provenance, require_roi_provenance=require_roi_provenance)
     if not report["valid"]:
         raise ValueError("Canonical validation failed:\n" + "\n".join(report["errors"]))
     return result
