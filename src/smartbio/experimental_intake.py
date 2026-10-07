@@ -138,10 +138,12 @@ def audit_experimental_intake(
         else:
             hashes.append(None)
 
-    for field in ("patient_id", "image_id", "acquisition_id", "reference_measurement_id"):
-        duplicated = frame[field].astype("string").str.strip().duplicated(keep=False)
-        if duplicated.any():
-            errors.append(f"Duplicate identity values in {field}")
+    # Patient and reference IDs are repeatable across image records.
+    # One acquisition event may also produce multiple image/ROI records.
+    # image_id identifies one manifest asset record and must be unique.
+    duplicated = frame["image_id"].astype("string").str.strip().duplicated(keep=False)
+    if duplicated.any():
+        errors.append("Duplicate identity values in image_id")
 
     valid_hashes = [h for h in hashes if h]
     if len(valid_hashes) != len(set(valid_hashes)):
