@@ -20,6 +20,7 @@ from .quality import QualityGateConfig, assess_paths
 from .ingestion import ingest_sewa_local, load_metadata_table
 from .sewa_preflight import preflight_sewa
 from .fingertip_preflight import preflight_fingertip
+from .fingertip_video_validation import validate_fingertip_videos
 
 def mapping_from_yaml(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -66,6 +67,11 @@ def main():
 
     p = sub.add_parser("fingertip-preflight")
     p.add_argument("--manifest", required=True)
+    p.add_argument("--output", required=True)
+
+    p = sub.add_parser("fingertip-video-validate")
+    p.add_argument("--manifest", required=True)
+    p.add_argument("--video-root", default=None)
     p.add_argument("--output", required=True)
 
     p = sub.add_parser("ingest-sewa")
@@ -167,6 +173,32 @@ def main():
         print(json.dumps(report.to_dict(), indent=2))
         if not report.passed:
             raise SystemExit("FINGERTIP PREFLIGHT NOT READY: downstream quantitative gates remain closed.")
+
+    elif args.cmd == "fingertip-video-validate":
+        manifest = load_metadata_table(args.manifest)
+        report = validate_fingertip_videos(manifest, video_root=args.video_root)
+        out = Path(args.output)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "validation.json").write_text(
+            json.dumps(report.to_dict(), indent=2), encoding="utf-8"
+        )
+        pd.DataFrame(
+            [record.to_dict() for record in report.records]
+        ).to_json(out / "records.json", orient="records", indent=2)
+        print(json.dumps({
+            "rows": report.rows,
+            "patients": report.unique_patients,
+            "files_found": report.files_found,
+            "files_missing": report.files_missing,
+            "readable_videos": report.readable_videos,
+            "unreadable_videos": report.unreadable_videos,
+            "duplicate_files": report.duplicate_files,
+            "passed": report.passed,
+        }, indent=2))
+        if not report.passed:
+            raise SystemExit(
+                "FINGERTIP VIDEO VALIDATION FAILED: assets are not ready for downstream analysis."
+            )
 
     elif args.cmd == "ingest-sewa":
         result = ingest_sewa_local(args.metadata, output_path=args.output)
