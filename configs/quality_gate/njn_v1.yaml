@@ -2,6 +2,6 @@
 # Engineering audit starting points; NOT clinical thresholds.
 # For ML evaluation, fit thresholds on training/calibration data only.
 low_sharpness: 1454.422186
-high_illum_cv: 0.350527
+high_illum_cv: 0.35052719712257385
 high_saturation: 0.010814
 low_dynamic_range: 172.0
