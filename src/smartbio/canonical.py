@@ -40,7 +40,7 @@ def build_canonical(raw, mapping, source_dataset, biomarker, target_unit, *, req
     for out, source in [("roi_type",mapping.roi_type),("device_model",mapping.device_model),("illumination",mapping.illumination)]:
         result[out] = _mapped_text(raw, source)
     result["acquisition_id"] = raw[mapping.acquisition_id].astype("string").str.strip() if mapping.acquisition_id else result["image_id"]
-    for col in ("roi_x0","roi_y0","roi_x1","roi_y1","exposure_us","iso","working_distance_mm","incidence_angle_deg","bit_depth"):
+    for col in ("roi_x0","roi_y0","roi_x1","roi_y1","image_width","image_height","exposure_us","iso","working_distance_mm","incidence_angle_deg","bit_depth"):
         source = getattr(mapping,col)
         result[col] = pd.to_numeric(raw[source],errors="coerce") if source else None
     for col in ("white_balance_mode","image_format"):
