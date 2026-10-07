@@ -14,7 +14,7 @@ from PIL import Image
 @dataclass(frozen=True)
 class QualityGateConfig:
     low_sharpness: float = 1454.422186
-    high_illum_cv: float = 0.350527
+    high_illum_cv: float = 0.35052719712257385
     high_saturation: float = 0.010814
     low_dynamic_range: float = 172.0
 

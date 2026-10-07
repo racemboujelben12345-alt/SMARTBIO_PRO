@@ -16,6 +16,7 @@ from .features import extract_dataset
 from .validator import validate_canonical
 from .acquisition import REQUIRED_QUANTITATIVE_FIELDS
 from .biophysics import validate_physical_capture
+from .quality import QualityGateConfig, assess_paths
 
 def mapping_from_yaml(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -54,6 +55,11 @@ def main():
 
     p = sub.add_parser("physics-audit")
     p.add_argument("--metadata", required=True)
+    p.add_argument("--output", required=True)
+
+    p = sub.add_parser("quality")
+    p.add_argument("--images", required=True)
+    p.add_argument("--config", required=True)
     p.add_argument("--output", required=True)
 
     args = parser.parse_args()
@@ -130,6 +136,75 @@ def main():
 
     elif args.cmd == "features":
         extract_dataset(args.metadata, args.output)
+
+    elif args.cmd == "quality":
+        image_root = Path(args.images)
+        config_path = Path(args.config)
+        out = Path(args.output)
+        out.mkdir(parents=True, exist_ok=True)
+
+        if not image_root.exists():
+            raise SystemExit(f"IMAGE ROOT NOT FOUND: {image_root}")
+        if not config_path.exists():
+            raise SystemExit(f"QUALITY CONFIG NOT FOUND: {config_path}")
+
+        cfg = yaml.safe_load(
+            config_path.read_text(encoding="utf-8")
+        ) or {}
+
+        config = QualityGateConfig(**cfg)
+
+        paths = sorted(
+            p for p in image_root.rglob("*")
+            if p.is_file()
+            and p.suffix.lower() in {
+                ".jpg", ".jpeg", ".png",
+                ".bmp", ".tif", ".tiff"
+            }
+        )
+
+        if not paths:
+            raise SystemExit(f"NO IMAGES FOUND: {image_root}")
+
+        results = assess_paths(paths, config)
+        results.to_csv(out / "quality.csv", index=False)
+
+        status_counts = (
+            results["quality_status"]
+            .value_counts()
+            .reindex(["PASS", "REVIEW", "FAIL"], fill_value=0)
+            .astype(int)
+            .to_dict()
+        )
+
+        summary = {
+            "images_root": str(image_root),
+            "config": str(config_path),
+            "records": int(len(results)),
+            "quality_status_counts": status_counts,
+            "pass_rate": float(
+                (results["quality_status"] == "PASS").mean()
+            ),
+            "review_rate": float(
+                (results["quality_status"] == "REVIEW").mean()
+            ),
+            "fail_rate": float(
+                (results["quality_status"] == "FAIL").mean()
+            ),
+            "raw_images_modified": False,
+            "scientific_status": "engineering_audit_only",
+            "note": (
+                "Thresholds are engineering starting points, "
+                "not clinical thresholds."
+            ),
+        }
+
+        (out / "summary.json").write_text(
+            json.dumps(summary, indent=2),
+            encoding="utf-8"
+        )
+
+        print(json.dumps(summary, indent=2))
 
     elif args.cmd == "physics-audit":
         df = pd.read_csv(args.metadata)
