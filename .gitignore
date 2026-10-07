@@ -4,6 +4,13 @@ __pycache__/
 .venv/
 venv/
 .env
+
+# Local/generated experiment outputs
+outputs/
+
+# Local OpenAI/tooling artifact
+oai_identifiers.xml
+
 data/raw/*
 data/metadata/*
 data/canonical/*
