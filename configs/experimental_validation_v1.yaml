@@ -1,0 +1,63 @@
+experiment:
+  id: experimental_validation_v1
+  status: protocol_only_until_traceable_data_exists
+  objective: "Evaluate whether calibration and quality gating improve robustness of smartphone optical biomarker estimation."
+
+biomarker_branches:
+  hemoglobin:
+    reference: laboratory
+    unit: g/dL
+    roi_types: [conjunctiva, nailbed]
+  bilirubin:
+    reference: laboratory
+    unit: explicit_per_dataset
+    roi_types: [forehead, sternum, abdomen]
+
+partitions:
+  development: train
+  calibration: calibration
+  evaluation: frozen_test
+
+pipeline_variants:
+  - id: E0_raw
+    description: raw documented RGB-derived features
+  - id: E1_calibrated
+    description: sRGB linearization and frozen calibration
+  - id: E2_quality_gated
+    description: calibrated pipeline plus deterministic quality gate
+  - id: E3_device_held_out
+    description: development on one device and frozen evaluation on another
+  - id: E4_uncertainty
+    description: split-conformal intervals calibrated only on calibration data
+
+required_acquisition_fields:
+  - patient_id
+  - image_id
+  - acquisition_id
+  - biomarker
+  - target_value
+  - target_unit
+  - target_source
+  - reference_method
+  - reference_measurement_id
+  - reference_type
+  - device_model
+  - exposure_us
+  - iso
+  - white_balance_mode
+  - working_distance_mm
+  - incidence_angle_deg
+  - illumination
+
+statistics:
+  confidence: 0.95
+  bootstrap_resamples: 2000
+  permutation_tests: 2000
+  cluster_unit: patient_id
+  random_seed: 42
+
+claims:
+  clinical_diagnosis: false
+  clinical_thresholds: false
+  direct_chromophore_measurement: false
+  literature_results_as_smartbio_results: false
