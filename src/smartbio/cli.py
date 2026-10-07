@@ -19,6 +19,7 @@ from .biophysics import validate_physical_capture
 from .quality import QualityGateConfig, assess_paths
 from .ingestion import ingest_sewa_local, load_metadata_table
 from .sewa_preflight import preflight_sewa
+from .fingertip_preflight import preflight_fingertip
 
 def mapping_from_yaml(path):
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -61,6 +62,10 @@ def main():
 
     p = sub.add_parser("sewa-preflight")
     p.add_argument("--metadata", required=True)
+    p.add_argument("--output", required=True)
+
+    p = sub.add_parser("fingertip-preflight")
+    p.add_argument("--manifest", required=True)
     p.add_argument("--output", required=True)
 
     p = sub.add_parser("ingest-sewa")
@@ -154,6 +159,14 @@ def main():
         print(json.dumps(report.to_dict(), indent=2))
         if not report.passed:
             raise SystemExit("SEWA PREFLIGHT NOT READY: downstream quantitative gates remain closed.")
+
+    elif args.cmd == "fingertip-preflight":
+        report = preflight_fingertip(load_metadata_table(args.manifest))
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+        print(json.dumps(report.to_dict(), indent=2))
+        if not report.passed:
+            raise SystemExit("FINGERTIP PREFLIGHT NOT READY: downstream quantitative gates remain closed.")
 
     elif args.cmd == "ingest-sewa":
         result = ingest_sewa_local(args.metadata, output_path=args.output)
