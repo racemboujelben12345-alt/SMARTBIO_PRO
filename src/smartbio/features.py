@@ -1,8 +1,11 @@
 """Biophysical and color feature extraction for SmartBio optical acquisitions."""
 from __future__ import annotations
 
+from pathlib import Path
 from dataclasses import dataclass
+import cv2
 import numpy as np
+import pandas as pd
 
 from .biophysics import chromaticity, relative_optical_density, srgb_to_linear
 
@@ -48,7 +51,6 @@ def extract_biophysical_features(rgb, *, reference=None,
         "linear_b_mean": float(mean[2]),
         "linear_total_mean": float(mean.sum()),
     }
-
     if config.include_std:
         std = linear.std(axis=(0, 1))
         features.update({
@@ -88,3 +90,69 @@ def extract_biophysical_features(rgb, *, reference=None,
     if not np.isfinite(list(features.values())).all():
         raise ValueError("Feature extraction produced non-finite values.")
     return features
+
+
+# Backward-compatible acquisition helpers retained from the previous feature API.
+def load_rgb(path):
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError(f"Cannot read image: {path}")
+    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
+def center_roi(image, fraction=0.60):
+    if not 0 < fraction <= 1:
+        raise ValueError("fraction must be in (0,1]")
+    h, w = image.shape[:2]
+    rh, rw = max(1, int(h * fraction)), max(1, int(w * fraction))
+    y, x = (h - rh) // 2, (w - rw) // 2
+    return image[y:y + rh, x:x + rw]
+
+
+def roi_from_metadata(image, row):
+    keys = ("roi_x0", "roi_y0", "roi_x1", "roi_y1")
+    if all(k in row.index and pd.notna(row[k]) for k in keys):
+        x0, y0, x1, y1 = [int(row[k]) for k in keys]
+        h, w = image.shape[:2]
+        if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
+            raise ValueError("Explicit ROI box is outside image bounds.")
+        return image[y0:y1, x0:x1].copy()
+    if "roi_type" in row.index and pd.notna(row.get("roi_type")):
+        raise ValueError("roi_type is specified but ROI coordinates are missing; refusing to use a center ROI.")
+    raise ValueError("Explicit ROI coordinates are required for scientific feature extraction.")
+
+
+def extract(path, roi=None, roi_fraction=0.60, *, allow_demo_center_roi=False):
+    """Legacy entry point; scientific default still requires an explicit ROI."""
+    image = load_rgb(path)
+    if roi is None:
+        if not allow_demo_center_roi:
+            raise ValueError("Explicit anatomical ROI is required; center ROI is demo-only and must be explicitly enabled.")
+        rgb = center_roi(image, roi_fraction)
+    else:
+        rgb = roi
+    return extract_biophysical_features(rgb)
+
+
+def extract_dataset(metadata_csv, output_csv, *, require_explicit_roi=True):
+    df = pd.read_csv(metadata_csv)
+    if "image_path" not in df:
+        raise ValueError("image_path is required.")
+    rows = []
+    for _, row in df.iterrows():
+        item = row.to_dict()
+        try:
+            image = load_rgb(row["image_path"])
+            if require_explicit_roi:
+                roi = roi_from_metadata(image, row)
+                item.update(extract_biophysical_features(roi))
+            else:
+                item.update(extract(row["image_path"], allow_demo_center_roi=True))
+            item["feature_error"] = None
+        except Exception as exc:
+            item["feature_error"] = str(exc)
+        rows.append(item)
+    out = pd.DataFrame(rows)
+    Path(output_csv).parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(output_csv, index=False)
+    return out
