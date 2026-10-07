@@ -57,6 +57,9 @@ def validate_canonical(df, *, require_target_provenance=False, require_roi_prove
         if missing_roi:
             errors.append(f"Missing ROI provenance columns: {sorted(missing_roi)}")
         else:
+            roi_labels = df["roi_type"].astype("string").str.strip()
+            if roi_labels.isna().any() or roi_labels.eq("").any():
+                errors.append("Incomplete ROI provenance: roi_type is required for quantitative data.")
             roi_values = df[list(["roi_x0", "roi_y0", "roi_x1", "roi_y1"])].apply(pd.to_numeric, errors="coerce")
             dims = df[["image_width", "image_height"]].apply(pd.to_numeric, errors="coerce")
             if roi_values.isna().any().any() or dims.isna().any().any():
