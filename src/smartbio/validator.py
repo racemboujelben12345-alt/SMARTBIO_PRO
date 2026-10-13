@@ -4,6 +4,8 @@ import pandas as pd
 REQUIRED = {"patient_id","image_id","image_path","source_dataset","biomarker","target_value","target_unit"}
 ALLOWED_BIOMARKERS = {"hemoglobin","bilirubin"}
 EXPECTED_UNITS = {"hemoglobin":"g/dL","bilirubin":"mg/dL"}
+# These labels are known exploratory modalities, not approved quantitative ROIs.
+EXPLORATORY_ROIS = {"tongue", "fingertip"}
 
 def validate_canonical(df, *, require_target_provenance=False, require_roi_provenance=False):
     errors, warnings = [], []
@@ -24,12 +26,26 @@ def validate_canonical(df, *, require_target_provenance=False, require_roi_prove
     for biomarker, unit in EXPECTED_UNITS.items():
         vals=df.loc[df["biomarker"]==biomarker,"target_unit"].dropna()
         if len(vals) and not set(vals.astype(str)) <= {unit}: errors.append(f"Unexpected unit for {biomarker}; expected {unit}.")
+
     if "roi_type" in df.columns:
         from .roi import TARGET_ROIS
         for biomarker, group in df.groupby("biomarker"):
             labels=group["roi_type"].dropna().astype(str).str.strip().str.lower()
-            bad=set(labels)-TARGET_ROIS.get(str(biomarker).lower(),set())
-            if bad: errors.append(f"Invalid ROI labels for {biomarker}: {sorted(bad)}")
+            allowed = TARGET_ROIS.get(str(biomarker).lower(), set())
+            exploratory = set(labels) & EXPLORATORY_ROIS
+            unsupported = set(labels) - allowed - EXPLORATORY_ROIS
+            if unsupported:
+                errors.append(f"Invalid ROI labels for {biomarker}: {sorted(unsupported)}")
+            if exploratory:
+                message = (
+                    f"Exploratory ROI labels for {biomarker} are not quantitatively approved: "
+                    f"{sorted(exploratory)}"
+                )
+                if require_roi_provenance:
+                    errors.append(message)
+                else:
+                    warnings.append(message)
+
     roi_cols=["roi_x0","roi_y0","roi_x1","roi_y1"]
     dimension_cols=["image_width","image_height"]
     if all(c in df.columns for c in roi_cols):
