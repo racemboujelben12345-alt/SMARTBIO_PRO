@@ -23,6 +23,25 @@ class ROIBox:
     y1: int
 
     def validate(self, width: int, height: int) -> None:
+        coordinates = (self.x0, self.y0, self.x1, self.y1)
+        if any(
+            isinstance(value, (bool, np.bool_))
+            or not isinstance(value, (int, np.integer))
+            for value in coordinates
+        ):
+            raise ValueError("ROI coordinates must be integers; fractional coordinates are not allowed.")
+
+        if (
+            isinstance(width, (bool, np.bool_))
+            or not isinstance(width, (int, np.integer))
+            or isinstance(height, (bool, np.bool_))
+            or not isinstance(height, (int, np.integer))
+        ):
+            raise ValueError("Image width and height must be integers.")
+
+        if width <= 0 or height <= 0:
+            raise ValueError("Image width and height must be positive.")
+
         if not (
             0 <= self.x0 < self.x1 <= width
             and 0 <= self.y0 < self.y1 <= height
@@ -60,7 +79,7 @@ def validate_roi_geometry(
     min_area_fraction: float = 0.01,
     max_area_fraction: float = 0.95,
 ) -> None:
-    """Validate bounds and reject implausibly tiny or dominant ROIs."""
+    """Validate integer pixel bounds and reject implausibly tiny or dominant ROIs."""
     if min_width < 1 or min_height < 1:
         raise ValueError("Minimum ROI dimensions must be positive.")
     if not (0.0 < min_area_fraction <= max_area_fraction <= 1.0):
