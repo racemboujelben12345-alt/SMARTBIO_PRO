@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from smartbio.validator import validate_canonical
 
@@ -49,3 +50,18 @@ def test_approved_conjunctiva_roi_passes_strict_roi_gate():
         require_roi_provenance=True,
     )
     assert result["valid"], result["errors"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("roi_x0", 10.5), ("image_width", 100.5), ("image_height", float("inf"))],
+)
+def test_fractional_or_nonfinite_roi_geometry_is_not_truncated(field, value):
+    row = _row("conjunctiva")
+    row[field] = value
+    result = validate_canonical(
+        pd.DataFrame([row]),
+        require_roi_provenance=True,
+    )
+    assert not result["valid"]
+    assert any("must be finite integers" in error for error in result["errors"])
