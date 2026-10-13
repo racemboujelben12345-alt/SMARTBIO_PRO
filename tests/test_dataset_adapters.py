@@ -35,8 +35,39 @@ def test_sewa_adapter_expands_modalities_and_preserves_missing_physics():
     assert out.iloc[0]["iso"] == pytest.approx(100)
     assert pd.isna(out.iloc[0]["working_distance_mm"])
     assert pd.isna(out.iloc[0]["incidence_angle_deg"])
-    # A missing flash-state value must not be interpreted as flash.
     assert pd.isna(out.iloc[0]["illumination"])
+
+
+def test_sewa_adapter_supports_published_flattened_schema():
+    frame = pd.DataFrame([{
+        "participant_uuid": "participant-001",
+        "haemoglobin_gdl": 10.1,
+        "device_model": "Samsung Galaxy S24",
+        "image_conjunctiva": "participants/participant-001/conj.jpeg",
+        "cam_Anemia_Conjunctiva_exposure_ns": 9_995_000,
+        "cam_Anemia_Conjunctiva_iso": 34,
+        "cam_Anemia_Conjunctiva_awb_mode": "OFF",
+        "cam_Anemia_Conjunctiva_flash_mode": 0,
+    }])
+    out = adapt_sewa_metadata(frame)
+    assert len(out) == 1
+    row = out.iloc[0]
+    assert row["patient_id"] == "participant-001"
+    assert row["target_value"] == pytest.approx(10.1)
+    assert row["target_source"] == "SEWA Rural venous haemoglobin"
+    assert row["reference_type"] == "laboratory"
+    assert row["reference_method"] == "venous_blood_draw"
+    assert row["exposure_us"] == pytest.approx(9995)
+    assert row["iso"] == pytest.approx(34)
+    assert row["illumination"] == "ambient"
+    assert row["device_model"] == "Samsung Galaxy S24"
+
+
+def test_sewa_cbc_target_takes_precedence_over_venous_hb_alias():
+    frame = pd.DataFrame([_sewa_row(target_fields={"haemoglobin_gdl": 10.4})])
+    out = adapt_sewa_metadata(frame)
+    assert out.iloc[0]["target_value"] == pytest.approx(9.4)
+    assert out.iloc[0]["reference_method"] == "complete_blood_count"
 
 
 def test_sewa_requires_patient_identity():
