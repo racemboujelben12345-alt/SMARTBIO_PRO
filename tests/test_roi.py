@@ -43,6 +43,25 @@ def test_roi_geometry_rejects_dominant_box():
         )
 
 
+def test_roi_coordinates_must_be_integer_pixel_indices():
+    with pytest.raises(ValueError, match="coordinates must be integers"):
+        ROIBox(10.5, 10, 50, 50).validate(100, 100)
+
+
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [(100.5, 100), (100, 100.5), (True, 100)],
+)
+def test_image_dimensions_must_be_integers(width, height):
+    with pytest.raises(ValueError, match="Image width and height must be integers"):
+        ROIBox(10, 10, 50, 50).validate(width, height)
+
+
+def test_image_dimensions_must_be_positive():
+    with pytest.raises(ValueError, match="must be positive"):
+        ROIBox(0, 0, 8, 8).validate(0, 100)
+
+
 def test_crop_preserves_shape_and_values():
     image = np.arange(100 * 100 * 3, dtype=np.uint16).reshape(100, 100, 3)
     result = crop(image, ROIBox(10, 20, 30, 40))
