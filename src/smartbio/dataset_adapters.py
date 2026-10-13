@@ -29,6 +29,13 @@ SEWA_CAMERA_COLUMNS = {
     "tongue": "camera_meta_tongue",
 }
 
+SEWA_SOURCE_MODALITIES = {
+    "conjunctiva": "Anemia_Conjunctiva",
+    "fingernails_open": "Anemia_Fingernails_Open",
+    "fingernails_closed": "Anemia_Fingernails_Closed",
+    "tongue": "Anemia_Tongue",
+}
+
 
 def _first(row: Mapping[str, Any], *names: str) -> Any:
     for name in names:
@@ -64,6 +71,26 @@ def _camera_value(payload: Any, *keys: str) -> Any:
         if value is not None and str(value).strip() not in {"", "None", "null"}:
             return value
     return None
+
+
+def _sewa_camera_value(
+    source_row: Mapping[str, Any],
+    modality: str,
+    payload: Any,
+    *,
+    payload_keys: tuple[str, ...],
+    flat_suffixes: tuple[str, ...],
+) -> Any:
+    """Read either legacy JSON camera metadata or published flattened SEWA fields."""
+    value = _camera_value(payload, *payload_keys)
+    if value is not None:
+        return value
+
+    source_modality = SEWA_SOURCE_MODALITIES[modality]
+    return _first(
+        source_row,
+        *(f"cam_{source_modality}_{suffix}" for suffix in flat_suffixes),
+    )
 
 
 def _numeric(value: Any) -> float | None:
@@ -131,34 +158,39 @@ def adapt_sewa_metadata(
 ) -> pd.DataFrame:
     """Expand one-row-per-participant SEWA metadata into canonical image rows.
 
-    Venous CBC Hb is labelled as a laboratory reference when the CBC field is
-    available. Survey Hb is explicitly labelled self-reported and is not
-    eligible for quantitative benchmarking under the current provenance gate.
-    Acquisition metadata are populated only when their source values are known.
+    Supports both the published flattened SEWA metadata columns and the earlier
+    JSON-style camera metadata representation. CBC/venous Hb targets are labelled
+    as laboratory references; only explicitly survey-named fallback fields are
+    labelled self-reported. Missing acquisition state remains missing.
     """
-    required = {"patient_uuid"}
-    missing = required - set(frame.columns)
-    if missing:
-        raise ValueError(f"SEWA metadata missing columns: {sorted(missing)}")
+    if frame.empty:
+        return pd.DataFrame(columns=CANONICAL_COLUMNS)
 
     records: list[dict[str, Any]] = []
     for _, row in frame.iterrows():
         source_row = row.to_dict()
-        patient_value = row["patient_uuid"]
-        if pd.isna(patient_value) or not str(patient_value).strip():
-            raise ValueError("SEWA patient_uuid must be non-empty.")
+        patient_value = _first(source_row, "participant_uuid", "patient_uuid", "Patient UUID")
+        if patient_value is None or not str(patient_value).strip():
+            raise ValueError("SEWA metadata requires a non-empty participant/patient UUID.")
         patient = str(patient_value).strip()
 
-        cbc_hb = _first(source_row, "cbc_hgb_g_dl")
+        cbc_hb = _first(source_row, "cbc_hgb_gdl", "cbc_hgb_g_dl")
+        venous_hb = _first(source_row, "haemoglobin_gdl", "hemoglobin_gdl", "haemoglobin_g_dl")
         if cbc_hb is not None:
             hb = cbc_hb
             target_source = "SEWA Rural CBC"
             reference_method = "complete_blood_count"
             reference_id = f"{patient}:cbc_hgb"
             reference_type = "laboratory"
+        elif venous_hb is not None:
+            hb = venous_hb
+            target_source = "SEWA Rural venous haemoglobin"
+            reference_method = "venous_blood_draw"
+            reference_id = f"{patient}:venous_hgb"
+            reference_type = "laboratory"
         else:
-            hb = _first(source_row, "haemoglobin_gdl", "survey_haemoglobin")
-            target_source = "SEWA Rural survey haemoglobin"
+            hb = _first(source_row, "survey_haemoglobin", "survey_hemoglobin", "survey_hgb_gdl")
+            target_source = "SEWA Rural self-reported survey haemoglobin"
             reference_method = "survey_record"
             reference_id = f"{patient}:survey_hgb"
             reference_type = "self_reported"
@@ -167,7 +199,7 @@ def adapt_sewa_metadata(
         if target is None:
             continue
 
-        device = _first(source_row, "survey_device_modal", "device_model")
+        device = _first(source_row, "device_model", "survey_device_modal")
         for modality in modalities:
             if modality not in SEWA_MODALITIES:
                 raise ValueError(f"Unsupported SEWA modality: {modality!r}.")
@@ -176,21 +208,28 @@ def adapt_sewa_metadata(
                 continue
 
             camera = source_row.get(SEWA_CAMERA_COLUMNS[modality])
-            exposure_ns = _camera_value(camera, "android.sensor.exposureTime", "exposureTime")
-            iso = _camera_value(camera, "android.sensor.sensitivity", "sensitivity")
-            awb_mode = _camera_value(
-                camera,
-                "android.control.awbMode",
-                "awb_mode",
-                "awbMode",
+            exposure_ns = _sewa_camera_value(
+                source_row, modality, camera,
+                payload_keys=("android.sensor.exposureTime", "exposureTime"),
+                flat_suffixes=("exposure_ns", "exposureTime"),
             )
-            flash_mode = _camera_value(
-                camera,
-                "android.flash.mode",
-                "flash_mode",
-                "flashMode",
+            iso = _sewa_camera_value(
+                source_row, modality, camera,
+                payload_keys=("android.sensor.sensitivity", "sensitivity"),
+                flat_suffixes=("iso", "sensitivity"),
+            )
+            awb_mode = _sewa_camera_value(
+                source_row, modality, camera,
+                payload_keys=("android.control.awbMode", "awb_mode", "awbMode"),
+                flat_suffixes=("awb_mode", "awbMode"),
+            )
+            flash_mode = _sewa_camera_value(
+                source_row, modality, camera,
+                payload_keys=("android.flash.mode", "flash_mode", "flashMode"),
+                flat_suffixes=("flash_mode", "flashMode"),
             )
 
+            exposure_value = _numeric(exposure_ns)
             records.append({
                 "patient_id": patient,
                 "image_id": f"{patient}:{modality}",
@@ -208,9 +247,7 @@ def adapt_sewa_metadata(
                 "device_model": device,
                 "illumination": _illumination_from_flash_mode(flash_mode),
                 "acquisition_id": f"{patient}:{modality}",
-                "exposure_us": None if exposure_ns is None else (
-                    None if _numeric(exposure_ns) is None else _numeric(exposure_ns) / 1000.0
-                ),
+                "exposure_us": None if exposure_value is None else exposure_value / 1000.0,
                 "iso": _numeric(iso),
                 "white_balance_mode": awb_mode,
                 "working_distance_mm": None,
