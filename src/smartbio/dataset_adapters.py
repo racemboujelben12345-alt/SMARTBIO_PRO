@@ -1,8 +1,8 @@
 """Dataset adapters for SmartBio PRO quantitative ingestion.
 
 Adapters normalize dataset-specific metadata into the canonical schema without
-inventing acquisition or target provenance. Missing quantitative state remains
-missing and therefore fails closed at the quantitative gate.
+inventing acquisition or target provenance. Missing or unverified state remains
+explicit and therefore fails closed at the quantitative gate.
 """
 from __future__ import annotations
 
@@ -27,6 +27,13 @@ SEWA_CAMERA_COLUMNS = {
     "fingernails_open": "camera_meta_fingernails_open",
     "fingernails_closed": "camera_meta_fingernails_closed",
     "tongue": "camera_meta_tongue",
+}
+
+SEWA_SOURCE_MODALITIES = {
+    "conjunctiva": "Anemia_Conjunctiva",
+    "fingernails_open": "Anemia_Fingernails_Open",
+    "fingernails_closed": "Anemia_Fingernails_Closed",
+    "tongue": "Anemia_Tongue",
 }
 
 
@@ -66,12 +73,82 @@ def _camera_value(payload: Any, *keys: str) -> Any:
     return None
 
 
+def _sewa_camera_value(
+    source_row: Mapping[str, Any],
+    modality: str,
+    payload: Any,
+    *,
+    payload_keys: tuple[str, ...],
+    flat_suffixes: tuple[str, ...],
+) -> Any:
+    """Read either legacy JSON camera metadata or published flattened SEWA fields."""
+    value = _camera_value(payload, *payload_keys)
+    if value is not None:
+        return value
+
+    source_modality = SEWA_SOURCE_MODALITIES[modality]
+    return _first(
+        source_row,
+        *(f"cam_{source_modality}_{suffix}" for suffix in flat_suffixes),
+    )
+
+
 def _numeric(value: Any) -> float | None:
     try:
         out = float(value)
     except (TypeError, ValueError):
         return None
     return out if pd.notna(out) else None
+
+
+def _illumination_from_flash_mode(value: Any) -> str | None:
+    """Map only explicit, recognized flash states; unknown values stay unknown.
+
+    Android Camera2 FLASH_MODE values are OFF=0, SINGLE=1, TORCH=2. Common
+    textual representations are accepted too. This does not infer illumination
+    from the mere presence of a metadata field.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "flash" if value else "ambient"
+
+    if isinstance(value, (int, float)):
+        numeric = _numeric(value)
+        if numeric == 0:
+            return "ambient"
+        if numeric in {1, 2}:
+            return "flash"
+        return None
+
+    text = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    if text in {"0", "off", "false", "none", "flash_mode_off", "off_mode"}:
+        return "ambient"
+    if text in {
+        "1", "2", "on", "true", "single", "torch", "flash",
+        "flash_mode_single", "flash_mode_torch",
+    }:
+        return "flash"
+    if text in {"ambient", "no_flash", "noflash", "natural_light"}:
+        return "ambient"
+    return None
+
+
+def _explicit_illumination(value: Any) -> str | None:
+    """Normalize a supplied illumination label without guessing missing values."""
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "flash": "flash",
+        "ambient": "ambient",
+        "no_flash": "ambient",
+        "noflash": "ambient",
+        "natural_light": "ambient",
+        "controlled_led": "controlled_led",
+        "reference": "reference",
+    }
+    return aliases.get(text)
 
 
 def adapt_sewa_metadata(
@@ -81,38 +158,48 @@ def adapt_sewa_metadata(
 ) -> pd.DataFrame:
     """Expand one-row-per-participant SEWA metadata into canonical image rows.
 
-    The adapter uses venous CBC Hb as the laboratory reference when available,
-    falling back to survey Hb only as an explicitly labelled alternative source.
-    It never fabricates geometry, white-balance lock state, or other acquisition
-    metadata that are not present in the source.
+    Supports both the published flattened SEWA metadata columns and the earlier
+    JSON-style camera metadata representation. CBC/venous Hb targets are labelled
+    as laboratory references; only explicitly survey-named fallback fields are
+    labelled self-reported. Missing acquisition state remains missing.
     """
-    required = {"patient_uuid"}
-    missing = required - set(frame.columns)
-    if missing:
-        raise ValueError(f"SEWA metadata missing columns: {sorted(missing)}")
+    if frame.empty:
+        return pd.DataFrame(columns=CANONICAL_COLUMNS)
 
     records: list[dict[str, Any]] = []
     for _, row in frame.iterrows():
         source_row = row.to_dict()
-        patient = str(row["patient_uuid"]).strip()
-        if not patient:
-            raise ValueError("SEWA patient_uuid must be non-empty.")
+        patient_value = _first(source_row, "participant_uuid", "patient_uuid", "Patient UUID")
+        if patient_value is None or not str(patient_value).strip():
+            raise ValueError("SEWA metadata requires a non-empty participant/patient UUID.")
+        patient = str(patient_value).strip()
 
-        hb = _first(source_row, "cbc_hgb_g_dl", "haemoglobin_gdl", "survey_haemoglobin")
+        cbc_hb = _first(source_row, "cbc_hgb_gdl", "cbc_hgb_g_dl")
+        venous_hb = _first(source_row, "haemoglobin_gdl", "hemoglobin_gdl", "haemoglobin_g_dl")
+        if cbc_hb is not None:
+            hb = cbc_hb
+            target_source = "SEWA Rural CBC"
+            reference_method = "complete_blood_count"
+            reference_id = f"{patient}:cbc_hgb"
+            reference_type = "laboratory"
+        elif venous_hb is not None:
+            hb = venous_hb
+            target_source = "SEWA Rural venous haemoglobin"
+            reference_method = "venous_blood_draw"
+            reference_id = f"{patient}:venous_hgb"
+            reference_type = "laboratory"
+        else:
+            hb = _first(source_row, "survey_haemoglobin", "survey_hemoglobin", "survey_hgb_gdl")
+            target_source = "SEWA Rural self-reported survey haemoglobin"
+            reference_method = "survey_record"
+            reference_id = f"{patient}:survey_hgb"
+            reference_type = "self_reported"
+
         target = _numeric(hb)
         if target is None:
             continue
 
-        if _first(source_row, "cbc_hgb_g_dl") is not None:
-            target_source = "SEWA Rural CBC"
-            reference_method = "complete_blood_count"
-            reference_id = f"{patient}:cbc_hgb"
-        else:
-            target_source = "SEWA Rural survey haemoglobin"
-            reference_method = "survey_record"
-            reference_id = f"{patient}:survey_hgb"
-
-        device = _first(source_row, "survey_device_modal", "device_model")
+        device = _first(source_row, "device_model", "survey_device_modal")
         for modality in modalities:
             if modality not in SEWA_MODALITIES:
                 raise ValueError(f"Unsupported SEWA modality: {modality!r}.")
@@ -121,21 +208,28 @@ def adapt_sewa_metadata(
                 continue
 
             camera = source_row.get(SEWA_CAMERA_COLUMNS[modality])
-            exposure_ns = _camera_value(camera, "android.sensor.exposureTime", "exposureTime")
-            iso = _camera_value(camera, "android.sensor.sensitivity", "sensitivity")
-            awb_mode = _camera_value(
-                camera,
-                "android.control.awbMode",
-                "awb_mode",
-                "awbMode",
+            exposure_ns = _sewa_camera_value(
+                source_row, modality, camera,
+                payload_keys=("android.sensor.exposureTime", "exposureTime"),
+                flat_suffixes=("exposure_ns", "exposureTime"),
             )
-            flash_mode = _camera_value(
-                camera,
-                "android.flash.mode",
-                "flash_mode",
-                "flashMode",
+            iso = _sewa_camera_value(
+                source_row, modality, camera,
+                payload_keys=("android.sensor.sensitivity", "sensitivity"),
+                flat_suffixes=("iso", "sensitivity"),
+            )
+            awb_mode = _sewa_camera_value(
+                source_row, modality, camera,
+                payload_keys=("android.control.awbMode", "awb_mode", "awbMode"),
+                flat_suffixes=("awb_mode", "awbMode"),
+            )
+            flash_mode = _sewa_camera_value(
+                source_row, modality, camera,
+                payload_keys=("android.flash.mode", "flash_mode", "flashMode"),
+                flat_suffixes=("flash_mode", "flashMode"),
             )
 
+            exposure_value = _numeric(exposure_ns)
             records.append({
                 "patient_id": patient,
                 "image_id": f"{patient}:{modality}",
@@ -147,13 +241,13 @@ def adapt_sewa_metadata(
                 "target_source": target_source,
                 "reference_method": reference_method,
                 "reference_measurement_id": reference_id,
-                "reference_type": "laboratory" if reference_method == "complete_blood_count" else "validated_reference",
+                "reference_type": reference_type,
                 "target_time_delta_min": None,
                 "roi_type": "conjunctiva" if modality == "conjunctiva" else "nailbed" if modality.startswith("fingernails") else "tongue",
                 "device_model": device,
-                "illumination": "flash" if flash_mode is not None else None,
+                "illumination": _illumination_from_flash_mode(flash_mode),
                 "acquisition_id": f"{patient}:{modality}",
-                "exposure_us": None if exposure_ns is None else _numeric(exposure_ns) / 1000.0,
+                "exposure_us": None if exposure_value is None else exposure_value / 1000.0,
                 "iso": _numeric(iso),
                 "white_balance_mode": awb_mode,
                 "working_distance_mm": None,
@@ -163,16 +257,16 @@ def adapt_sewa_metadata(
                 "raw_available": False,
             })
 
-    result = pd.DataFrame(records, columns=CANONICAL_COLUMNS)
-    return result
+    return pd.DataFrame(records, columns=CANONICAL_COLUMNS)
 
 
 def build_fingertip_manifest(frame: pd.DataFrame) -> pd.DataFrame:
     """Normalize an explicit Fingertip Video manifest.
 
-    Because the public dataset does not publish a canonical machine-readable
-    acquisition schema alongside the paper, filenames are never interpreted as
-    patient IDs or Hb labels. The caller must provide explicit columns.
+    Patient identity, video path, target value and reference measurement ID are
+    required. Reference method/type and illumination are copied only when
+    explicitly supplied; absent values remain marked unknown rather than being
+    inferred from the dataset name, target column, or filename.
     """
     required = {
         "patient_id",
@@ -189,12 +283,20 @@ def build_fingertip_manifest(frame: pd.DataFrame) -> pd.DataFrame:
 
     records: list[dict[str, Any]] = []
     for _, row in frame.iterrows():
-        patient = str(row["patient_id"]).strip()
-        video = str(row["video_path"]).strip()
+        patient_value = row["patient_id"]
+        video_value = row["video_path"]
+        reference_value = row["reference_measurement_id"]
+        patient = "" if pd.isna(patient_value) else str(patient_value).strip()
+        video = "" if pd.isna(video_value) else str(video_value).strip()
         target = _numeric(row["hemoglobin_gdl"])
-        reference_id = str(row["reference_measurement_id"]).strip()
+        reference_id = "" if pd.isna(reference_value) else str(reference_value).strip()
         if not patient or not video or target is None or not reference_id:
             raise ValueError("Fingertip manifest contains incomplete provenance.")
+
+        supplied_target_source = _first(row.to_dict(), "target_source")
+        supplied_reference_method = _first(row.to_dict(), "reference_method")
+        supplied_reference_type = _first(row.to_dict(), "reference_type")
+        supplied_illumination = _first(row.to_dict(), "illumination")
 
         records.append({
             "patient_id": patient,
@@ -204,20 +306,20 @@ def build_fingertip_manifest(frame: pd.DataFrame) -> pd.DataFrame:
             "biomarker": "hemoglobin",
             "target_value": target,
             "target_unit": "g/dL",
-            "target_source": "laboratory CBC",
-            "reference_method": "complete_blood_count",
+            "target_source": supplied_target_source or "unverified supplied target",
+            "reference_method": supplied_reference_method or "unspecified",
             "reference_measurement_id": reference_id,
-            "reference_type": "laboratory",
+            "reference_type": supplied_reference_type or "unknown",
             "target_time_delta_min": None,
             "roi_type": "fingertip",
-            "device_model": None,
-            "illumination": "flash",
+            "device_model": _first(row.to_dict(), "device_model"),
+            "illumination": _explicit_illumination(supplied_illumination),
             "acquisition_id": f"{patient}:{Path(video).stem}",
-            "exposure_us": None,
-            "iso": None,
-            "white_balance_mode": None,
-            "working_distance_mm": None,
-            "incidence_angle_deg": None,
+            "exposure_us": _numeric(_first(row.to_dict(), "exposure_us")),
+            "iso": _numeric(_first(row.to_dict(), "iso")),
+            "white_balance_mode": _first(row.to_dict(), "white_balance_mode"),
+            "working_distance_mm": _numeric(_first(row.to_dict(), "working_distance_mm")),
+            "incidence_angle_deg": _numeric(_first(row.to_dict(), "incidence_angle_deg")),
             "image_format": Path(video).suffix.lower().lstrip(".") or None,
             "bit_depth": None,
             "raw_available": False,

@@ -36,6 +36,14 @@ def test_missing_reference_method_fails_closed():
     assert any("reference_method" in error for error in result["errors"])
 
 
+def test_missing_reference_type_fails_closed_without_defaulting_to_laboratory():
+    row = valid_row()
+    del row["reference_type"]
+    result = validate_target_provenance(row)
+    assert not result["valid"]
+    assert any("reference_type" in error for error in result["errors"])
+
+
 def test_biomarker_and_unit_mismatch_are_rejected():
     result = validate_target_provenance(
         valid_row(),
@@ -51,6 +59,14 @@ def test_invalid_reference_type_is_rejected():
     row["reference_type"] = "unknown"
     result = validate_target_provenance(row)
     assert not result["valid"]
+
+
+def test_self_reported_reference_is_not_quantitative_benchmark_ready():
+    row = valid_row()
+    row["reference_type"] = "self_reported"
+    result = validate_target_provenance(row)
+    assert not result["valid"]
+    assert any("reference_type" in error for error in result["errors"])
 
 
 def test_negative_time_delta_is_rejected():
@@ -80,3 +96,10 @@ def test_contract_from_row_rejects_missing_metadata():
     del row["reference_measurement_id"]
     with pytest.raises(ValueError, match="Target provenance contract failed"):
         contract_from_row(row)
+
+
+def test_contract_default_reference_type_is_not_assumed_laboratory():
+    row = valid_row()
+    del row["reference_type"]
+    with pytest.raises(ValueError, match="reference_type"):
+        TargetProvenanceContract(**row)
