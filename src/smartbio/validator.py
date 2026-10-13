@@ -64,6 +64,23 @@ def validate_canonical(df, *, require_target_provenance=False, require_roi_prove
                 size=dims.loc[idx]
                 if vals.isna().any() or size.isna().any():
                     continue
+
+                geometry_values = [vals[c] for c in roi_cols] + [
+                    size["image_width"], size["image_height"]
+                ]
+                try:
+                    finite_integer_geometry = all(
+                        np.isfinite(float(value)) and float(value).is_integer()
+                        for value in geometry_values
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    finite_integer_geometry = False
+                if not finite_integer_geometry:
+                    errors.append(
+                        f"ROI coordinates and image dimensions must be finite integers at row {idx}."
+                    )
+                    continue
+
                 try:
                     box=ROIBox(*(int(vals[c]) for c in roi_cols))
                     width,height=int(size["image_width"]),int(size["image_height"])
