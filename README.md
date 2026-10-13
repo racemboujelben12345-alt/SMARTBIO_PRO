@@ -116,6 +116,8 @@ python -m smartbio.cli physics-audit \
 6. Thresholds are engineering starting points, not clinical thresholds.
 7. Hb and bilirubin are separate model branches.
 8. Reference standards remain laboratory Hb and TSB.
+9. Missing reference provenance must never default to laboratory status.
+10. Survey/self-reported targets may be retained for ingestion and descriptive audit, but are not eligible for quantitative benchmarking under the current target provenance gate.
 
 ## PRO scientific safeguards
 
@@ -123,6 +125,8 @@ python -m smartbio.cli physics-audit \
 - Hb ROI contracts: conjunctiva or nail-bed. Bilirubin ROI contracts: forehead, sternum, or abdomen.
 - The code does not claim automatic anatomical localization; a validated detector is required before deployment.
 - Flash/no-flash subtraction requires comparable device, exposure and ISO metadata; supplied white-balance/geometry metadata are also checked when present.
+- A flash metadata field is not evidence that flash was active. Only recognized explicit flash states are mapped; unrecognized or absent states remain missing.
+- Fingertip manifest adapters do not infer that a supplied target is a laboratory CBC, nor that the acquisition used flash. Reference method/type and illumination must be explicitly supplied.
 - Saturated pixels are explicitly flagged rather than silently treated as valid optical measurements.
 - Unseen-device validation is patient-safe: patients appearing on the held-out device are excluded from training.
 - Calibration requires finite paired observations and is intended to be fitted only on training/calibration data.
