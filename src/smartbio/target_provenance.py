@@ -1,8 +1,9 @@
 """Fail-closed provenance controls for quantitative biomarker targets.
 
-A target value is not considered benchmark-ready merely because it is numeric.
-This module requires an explicit reference measurement identity and method so
-Hb/bilirubin targets can be traced back to their reference source.
+A target value is not benchmark-ready merely because it is numeric. Quantitative
+experiments require explicit reference identity, method, and reference type.
+Self-reported or unknown targets may be retained during ingestion but cannot
+pass the quantitative provenance gate.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ REQUIRED_TARGET_PROVENANCE_FIELDS = {
     "target_source",
     "reference_method",
     "reference_measurement_id",
+    "reference_type",
 }
 
 ALLOWED_REFERENCE_TYPES = {"laboratory", "validated_reference"}
@@ -32,7 +34,7 @@ class TargetProvenanceContract:
     target_source: str
     reference_method: str
     reference_measurement_id: str
-    reference_type: str = "laboratory"
+    reference_type: str = "unknown"
     target_time_delta_min: float | None = None
 
     def __post_init__(self) -> None:
@@ -49,7 +51,7 @@ class TargetProvenanceContract:
         reference_type = str(self.reference_type).strip().lower()
         if reference_type not in ALLOWED_REFERENCE_TYPES:
             raise ValueError(
-                "reference_type must be 'laboratory' or 'validated_reference'."
+                "reference_type must be explicitly 'laboratory' or 'validated_reference'."
             )
 
         if self.target_time_delta_min is not None:
@@ -77,7 +79,7 @@ def validate_target_provenance(
     expected_biomarker: str | None = None,
     expected_unit: str | None = None,
 ) -> dict[str, object]:
-    """Validate target provenance for one record without inferring metadata."""
+    """Validate target provenance without assuming missing references are lab values."""
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -90,7 +92,7 @@ def validate_target_provenance(
 
     biomarker = str(row["biomarker"]).strip().lower()
     unit = str(row["target_unit"]).strip()
-    reference_type = str(row.get("reference_type", "laboratory")).strip().lower()
+    reference_type = str(row["reference_type"]).strip().lower()
 
     if expected_biomarker is not None and biomarker != str(expected_biomarker).strip().lower():
         errors.append(
@@ -184,6 +186,6 @@ def contract_from_row(row: Mapping) -> TargetProvenanceContract:
         target_source=str(row["target_source"]).strip(),
         reference_method=str(row["reference_method"]).strip(),
         reference_measurement_id=str(row["reference_measurement_id"]).strip(),
-        reference_type=str(row.get("reference_type", "laboratory")).strip().lower(),
+        reference_type=str(row["reference_type"]).strip().lower(),
         target_time_delta_min=None if _missing(delta) else float(delta),
     )
