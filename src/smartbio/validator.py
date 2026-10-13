@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 REQUIRED = {"patient_id","image_id","image_path","source_dataset","biomarker","target_value","target_unit"}
@@ -15,6 +16,8 @@ def validate_canonical(df, *, require_target_provenance=False, require_roi_prove
         if df[c].astype(str).str.strip().eq("").any(): errors.append(f"Empty values in {c}.")
     target = pd.to_numeric(df["target_value"],errors="coerce")
     if target.isna().any(): errors.append("Missing/non-numeric target_value.")
+    if target.notna().any() and not np.isfinite(target.dropna().to_numpy(dtype=float)).all():
+        errors.append("Non-finite target_value.")
     if not target.empty and (target < 0).any(): errors.append("Negative target_value.")
     bad = set(df["biomarker"].dropna().unique()) - ALLOWED_BIOMARKERS
     if bad: errors.append(f"Unknown biomarkers: {sorted(bad)}")
