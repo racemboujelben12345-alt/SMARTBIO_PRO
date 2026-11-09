@@ -1,9 +1,11 @@
+
 import pandas as pd
 import pytest
 
 from smartbio.dataset_adapters import (
     adapt_sewa_metadata,
     build_fingertip_manifest,
+    adapt_neojaundice,
 )
 from smartbio.target_provenance import validate_target_provenance
 
@@ -28,6 +30,7 @@ def test_sewa_adapter_expands_modalities_and_preserves_missing_physics():
         "android.sensor.sensitivity": {"result": "100"},
     })])
     out = adapt_sewa_metadata(frame)
+
     assert len(out) == 1
     assert out.iloc[0]["target_value"] == pytest.approx(9.4)
     assert out.iloc[0]["reference_type"] == "laboratory"
@@ -49,7 +52,9 @@ def test_sewa_adapter_supports_published_flattened_schema():
         "cam_Anemia_Conjunctiva_awb_mode": "OFF",
         "cam_Anemia_Conjunctiva_flash_mode": 0,
     }])
+
     out = adapt_sewa_metadata(frame)
+
     assert len(out) == 1
     row = out.iloc[0]
     assert row["patient_id"] == "participant-001"
@@ -64,8 +69,12 @@ def test_sewa_adapter_supports_published_flattened_schema():
 
 
 def test_sewa_cbc_target_takes_precedence_over_venous_hb_alias():
-    frame = pd.DataFrame([_sewa_row(target_fields={"haemoglobin_gdl": 10.4})])
+    frame = pd.DataFrame([
+        _sewa_row(target_fields={"haemoglobin_gdl": 10.4})
+    ])
+
     out = adapt_sewa_metadata(frame)
+
     assert out.iloc[0]["target_value"] == pytest.approx(9.4)
     assert out.iloc[0]["reference_method"] == "complete_blood_count"
 
@@ -77,16 +86,28 @@ def test_sewa_requires_patient_identity():
 
 @pytest.mark.parametrize(
     ("flash_value", "expected"),
-    [(0, "ambient"), (1, "flash"), (2, "flash"), ("OFF", "ambient"),
-     ("SINGLE", "flash"), ("unrecognized-mode", None)],
+    [
+        (0, "ambient"),
+        (1, "flash"),
+        (2, "flash"),
+        ("OFF", "ambient"),
+        ("SINGLE", "flash"),
+        ("unrecognized-mode", None),
+    ],
 )
-def test_sewa_flash_state_is_decoded_only_when_recognized(flash_value, expected):
+def test_sewa_flash_state_is_decoded_only_when_recognized(
+    flash_value, expected
+):
     import json
 
-    frame = pd.DataFrame([_sewa_row(camera_meta=json.dumps({
-        "android.flash.mode": {"result": flash_value},
-    }))])
+    frame = pd.DataFrame([
+        _sewa_row(camera_meta=json.dumps({
+            "android.flash.mode": {"result": flash_value},
+        }))
+    ])
+
     value = adapt_sewa_metadata(frame).iloc[0]["illumination"]
+
     if expected is None:
         assert pd.isna(value)
     else:
@@ -99,17 +120,26 @@ def test_sewa_survey_target_is_not_mislabeled_as_validated_reference():
         "survey_haemoglobin": 11.2,
         "image_conjunctiva": {"path": "p2/conj.jpeg"},
     }
+
     out = adapt_sewa_metadata(pd.DataFrame([row]))
+
     assert out.iloc[0]["reference_type"] == "self_reported"
     assert out.iloc[0]["reference_method"] == "survey_record"
+
     validation = validate_target_provenance(out.iloc[0].to_dict())
+
     assert not validation["valid"]
-    assert any("reference_type" in error for error in validation["errors"])
+    assert any(
+        "reference_type" in error
+        for error in validation["errors"]
+    )
 
 
 def test_fingertip_requires_explicit_manifest():
     with pytest.raises(ValueError):
-        build_fingertip_manifest(pd.DataFrame([{"video_path": "x.mp4"}]))
+        build_fingertip_manifest(
+            pd.DataFrame([{"video_path": "x.mp4"}])
+        )
 
 
 def test_fingertip_never_infers_patient_from_filename():
@@ -119,7 +149,9 @@ def test_fingertip_never_infers_patient_from_filename():
         "hemoglobin_gdl": 7.2,
         "reference_measurement_id": "cbc-P01",
     }])
+
     out = build_fingertip_manifest(frame)
+
     assert out.iloc[0]["patient_id"] == "P01"
     assert out.iloc[0]["reference_measurement_id"] == "cbc-P01"
     assert out.iloc[0]["reference_type"] == "unknown"
@@ -145,8 +177,48 @@ def test_fingertip_preserves_explicit_reference_and_illumination():
         "working_distance_mm": 50,
         "incidence_angle_deg": 0,
     }])
+
     out = build_fingertip_manifest(frame)
+
     assert out.iloc[0]["reference_type"] == "laboratory"
     assert out.iloc[0]["reference_method"] == "complete_blood_count"
     assert out.iloc[0]["illumination"] == "ambient"
     assert out.iloc[0]["device_model"] == "Phone X"
+
+
+def test_neojaundice_adapter_maps_images_and_bilirubin(tmp_path):
+    images_dir = tmp_path / "images"
+    images_dir.mkdir()
+
+    filenames = [
+        "0001-1.jpg",
+        "0001-2.jpg",
+        "0001-3.jpg",
+    ]
+
+    for filename in filenames:
+        (images_dir / filename).touch()
+
+    frame = pd.DataFrame([
+        {
+            "patient_id": 1,
+            "image_idx": filename,
+            "blood(mg/dL)": 12.2,
+            "Treatment": 0,
+        }
+        for filename in filenames
+    ])
+
+    out = adapt_neojaundice(
+        frame,
+        images_dir=images_dir,
+    )
+
+    assert len(out) == 3
+    assert out["patient_id"].nunique() == 1
+    assert out["image_id"].nunique() == 3
+    assert out["biomarker"].eq("bilirubin").all()
+    assert out["target_unit"].eq("mg/dL").all()
+    assert out["target_value"].eq(12.2).all()
+    assert "Treatment" not in out.columns
+    assert out["reference_type"].isna().all()

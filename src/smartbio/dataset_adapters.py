@@ -326,3 +326,87 @@ def build_fingertip_manifest(frame: pd.DataFrame) -> pd.DataFrame:
         })
 
     return pd.DataFrame(records, columns=CANONICAL_COLUMNS)
+
+
+def adapt_neojaundice(
+    frame: pd.DataFrame,
+    *,
+    images_dir: str | Path,
+) -> pd.DataFrame:
+    """Normalize NeoJaundice image metadata without inventing provenance."""
+    required = {"patient_id", "image_idx", "blood(mg/dL)"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(
+            "NeoJaundice requires explicit columns: "
+            + ", ".join(sorted(missing))
+        )
+
+    images_root = Path(images_dir)
+    if not images_root.is_dir():
+        raise ValueError(f"Images directory does not exist: {images_root}")
+
+    records: list[dict[str, Any]] = []
+    seen_images: set[str] = set()
+
+    for _, row in frame.iterrows():
+        patient_value = row["patient_id"]
+        image_value = row["image_idx"]
+
+        patient = (
+            "" if pd.isna(patient_value)
+            else str(patient_value).strip()
+        )
+        image_name = (
+            "" if pd.isna(image_value)
+            else str(image_value).strip()
+        )
+
+        if not patient or not image_name:
+            raise ValueError("NeoJaundice contains a missing patient or image ID.")
+
+        if Path(image_name).name != image_name:
+            raise ValueError(f"Invalid image filename: {image_name}")
+
+        image_file = images_root / image_name
+        if not image_file.is_file():
+            raise ValueError(f"NeoJaundice image not found: {image_file}")
+
+        if image_name in seen_images:
+            raise ValueError(f"Duplicate NeoJaundice image: {image_name}")
+        seen_images.add(image_name)
+
+        target = _numeric(row["blood(mg/dL)"])
+        if target is None or target < 0:
+            raise ValueError(
+                f"Invalid bilirubin value for image {image_name}"
+            )
+
+        records.append({
+            "patient_id": patient,
+            "image_id": f"{patient}:{Path(image_name).stem}",
+            "image_path": str(image_file),
+            "source_dataset": "NeoJaundice",
+            "biomarker": "bilirubin",
+            "target_value": target,
+            "target_unit": "mg/dL",
+            "target_source": "published blood(mg/dL) field; provenance unverified",
+            "reference_method": "unspecified",
+            "reference_measurement_id": None,
+            "reference_type": None,
+            "target_time_delta_min": None,
+            "roi_type": "unknown",
+            "device_model": None,
+            "illumination": None,
+            "acquisition_id": None,
+            "exposure_us": None,
+            "iso": None,
+            "white_balance_mode": None,
+            "working_distance_mm": None,
+            "incidence_angle_deg": None,
+            "image_format": image_file.suffix.lower().lstrip(".") or None,
+            "bit_depth": None,
+            "raw_available": False,
+        })
+
+    return pd.DataFrame(records, columns=CANONICAL_COLUMNS)

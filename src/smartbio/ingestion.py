@@ -7,21 +7,34 @@ source data.
 from __future__ import annotations
 
 from pathlib import Path
+
 import pandas as pd
-from .dataset_adapters import adapt_sewa_metadata
+
+from .dataset_adapters import (
+    adapt_neojaundice,
+    adapt_sewa_metadata,
+)
 
 
-def load_metadata_table(path: str | Path) -> pd.DataFrame:
+def load_metadata_table(
+    path: str | Path,
+    *,
+    csv_dtype: dict[str, str] | None = None,
+) -> pd.DataFrame:
     """Load a local CSV, JSONL/JSON, or Parquet metadata export."""
     source = Path(path)
+
     if not source.exists():
         raise FileNotFoundError(f"Metadata file not found: {source}")
 
     suffix = source.suffix.lower()
+
     if suffix == ".parquet":
         return pd.read_parquet(source)
+
     if suffix == ".csv":
-        return pd.read_csv(source)
+        return pd.read_csv(source, dtype=csv_dtype)
+
     if suffix in {".json", ".jsonl"}:
         return pd.read_json(source, lines=suffix == ".jsonl")
 
@@ -55,4 +68,35 @@ def ingest_sewa_local(
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     canonical.to_csv(destination, index=False)
+
+    return canonical
+
+
+def ingest_neojaundice_local(
+    metadata_path: str | Path,
+    *,
+    images_dir: str | Path,
+    output_path: str | Path,
+) -> pd.DataFrame:
+    """Convert a local NeoJaundice export into canonical metadata."""
+    raw = load_metadata_table(
+        metadata_path,
+        csv_dtype={"patient_id": "string"},
+    )
+
+    canonical = adapt_neojaundice(
+        raw,
+        images_dir=images_dir,
+    )
+
+    if canonical.empty:
+        raise ValueError(
+            "NeoJaundice ingestion produced zero canonical records. "
+            "Check the metadata CSV and images directory."
+        )
+
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    canonical.to_csv(destination, index=False)
+
     return canonical
