@@ -109,11 +109,13 @@ def analyze_residual_diagnostics(
     measurement = paired[measurement_column].to_numpy(float)
     residual = measurement - reference
     absolute_residual = np.abs(residual)
-    if np.all(reference == 0):
-        raise ValueError("reference values cannot all be zero.")
-    relative_residual = residual / reference
-    if not np.isfinite(relative_residual).all():
+    if np.any(reference == 0):
         raise ValueError("reference values must be non-zero for relative residual diagnostics.")
+
+    relative_residual = residual / reference
+
+    if not np.isfinite(relative_residual).all():
+        raise ValueError("relative residuals must contain only finite values.")
     return ResidualDiagnosticsReport(
         n_pairs=int(len(paired)),
         n_rows=int(len(frame)),
