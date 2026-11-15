@@ -21,6 +21,23 @@ class QualityGateConfig:
     high_saturation: float = 0.010814
     low_dynamic_range: float = 172.0
 
+    def __post_init__(self) -> None:
+        for name in (
+            "low_sharpness",
+            "high_illum_cv",
+            "high_saturation",
+            "low_dynamic_range",
+        ):
+            try:
+                value = float(getattr(self, name))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name} must be a finite non-negative number.") from exc
+            if not np.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be a finite non-negative number.")
+            if name == "high_saturation" and value > 1:
+                raise ValueError("high_saturation must be between 0 and 1.")
+            object.__setattr__(self, name, value)
+
 def _illumination_cv(gray: np.ndarray, grid: int = 10) -> float:
     h, w = gray.shape
     row_blocks = np.array_split(gray, min(grid, h), axis=0)
