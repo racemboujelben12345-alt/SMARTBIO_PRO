@@ -112,15 +112,26 @@ def preprocess_roi(
     )
 
 
-def masked_channel_summary(result: OpticalPreprocessResult) -> dict[str, float]:
-    """Summarize only unsaturated pixels; never silently drop the quality flag."""
-    if result.valid_fraction <= 0:
+
+def masked_channel_summary(result: OpticalPreprocessResult) -> dict[str, object]:
+    """Summarize valid pixels only when the ROI passes optical quality control."""
+    if result.quality_status != "PASS":
+        raise ValueError(
+            "Cannot summarize an ROI that failed optical quality control."
+        )
+
+    if result.valid_fraction <= 0 or not np.any(result.valid_mask):
         raise ValueError("Cannot summarize an ROI with no valid pixels.")
+
     values = result.linear_rgb[result.valid_mask]
+
     return {
         "linear_r_mean": float(values[:, 0].mean()),
         "linear_g_mean": float(values[:, 1].mean()),
         "linear_b_mean": float(values[:, 2].mean()),
         "valid_fraction": result.valid_fraction,
         "saturation_fraction": result.saturation_fraction,
+        "quality_status": result.quality_status,
+        "calibration_id": result.calibration_id,
     }
+

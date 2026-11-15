@@ -65,3 +65,29 @@ def test_invalid_rgb_range_is_rejected():
     image[0, 0, 0] = 300
     with pytest.raises(ValueError, match=r"\[0, 255\]"):
         preprocess_roi(image)
+def test_failed_quality_control_blocks_summary():
+    image = rgb()
+    image[:5] = 255
+
+    result = preprocess_roi(
+        image,
+        config=OpticalPreprocessConfig(min_valid_fraction=0.60),
+    )
+
+    assert result.quality_status == "FAIL"
+
+    with pytest.raises(ValueError, match="failed optical quality control"):
+        masked_channel_summary(result)
+
+
+def test_summary_preserves_quality_and_calibration_provenance():
+    result = preprocess_roi(
+        rgb(),
+        channel_gains=[1.0, 1.0, 1.0],
+        calibration_id="cal-v1",
+    )
+
+    summary = masked_channel_summary(result)
+
+    assert summary["quality_status"] == "PASS"
+    assert summary["calibration_id"] == "cal-v1"
