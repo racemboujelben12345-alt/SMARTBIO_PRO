@@ -41,3 +41,56 @@ def test_coverage_under_uncertainty():
 
     assert result["coverage"] == 1.0
     assert result["n"] == 3
+import pytest
+
+
+@pytest.mark.parametrize(
+    "y_true,y_pred",
+    [
+        ([1, 2], [1]),
+        ([], []),
+        ([1, 2], [1, float("nan")]),
+        ([1, 2], [1, float("inf")]),
+    ],
+)
+def test_regression_metrics_reject_invalid_inputs(y_true, y_pred):
+    with pytest.raises(ValueError):
+        regression_metrics(y_true, y_pred)
+
+
+def test_bland_altman_requires_at_least_two_observations():
+    with pytest.raises(ValueError):
+        bland_altman([10], [11])
+
+
+def test_bland_altman_rejects_mismatched_lengths():
+    with pytest.raises(ValueError):
+        bland_altman([1, 2], [1])
+
+
+def test_coverage_rejects_mismatched_lengths():
+    with pytest.raises(ValueError):
+        coverage_under_uncertainty(
+            [10, 20],
+            [11],
+            [1, 1],
+        )
+
+
+def test_coverage_rejects_negative_uncertainty():
+    with pytest.raises(ValueError):
+        coverage_under_uncertainty(
+            [10, 20],
+            [11, 19],
+            [1, -1],
+        )
+
+
+def test_coverage_rejects_invalid_z():
+    with pytest.raises(ValueError):
+        coverage_under_uncertainty(
+            [10],
+            [11],
+            [1],
+            z=-1,
+        )
